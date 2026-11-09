@@ -1,0 +1,57 @@
+{
+  "name": "study-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "学习闭环 · 错题中枢：拍照识题 → 入库 → 变式 → 遗忘曲线调度 → 周报",
+  "license": "MIT",
+  "author": "oransky",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oranskyx/study-os.git"
+  },
+  "homepage": "https://github.com/oranskyx/study-os#readme",
+  "bugs": {
+    "url": "https://github.com/oranskyx/study-os/issues"
+  },
+  "keywords": [
+    "错题本",
+    "错题管理",
+    "间隔重复",
+    "spaced-repetition",
+    "education",
+    "express",
+    "sqlite",
+    "katex"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.mjs",
+    "dev": "node --watch --env-file-if-exists=.env server/index.mjs",
+    "mock": "node tools/mock-ai.mjs",
+    "stop": "node tools/autostart.mjs stop",
+    "autostart:install": "node tools/autostart.mjs install",
+    "autostart:remove": "node tools/autostart.mjs remove",
+    "autostart:status": "node tools/autostart.mjs status",
+    "test:api": "node tools/smoke.mjs",
+    "test:ui": "node tools/uidom.mjs",
+    "test:e2e": "node tools/e2e-mock.mjs",
+    "test:math": "node tools/mathtest.mjs",
+    "test:mobile": "node tools/mobilecheck.mjs",
+    "test": "node tools/test-all.mjs",
+    "test:all": "node tools/test-all.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "katex": "^0.19.1",
+    "multer": "^2.0.2",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.0",
+    "jsqr": "^1.4.0",
+    "pngjs": "^7.0.0"
+  }
+}

@@ -1,0 +1,244 @@
+// 提示词库。全部中文，面向高一学生。
+// 核心原则：宁可返回 null 让人补，也不许编造内容。
+
+const SUBJECT_NAME = {
+  math: '数学', chinese: '语文', english: '英语',
+  physics: '物理', chemistry: '化学', biology: '生物',
+};
+
+const ERROR_TYPES = ['概念不清', '计算失误', '审题偏差', '方法缺失', '记忆不牢', '表达不规范'];
+
+// ---------------------------------------------------------------- 识题
+export function extractMessages({ imageDataUrl, subjectId, kpList, extraNote = '' }) {
+  const subj = SUBJECT_NAME[subjectId] || '数学';
+  const kpText = kpList.map((k) => `- ${k.chapter} / ${k.name}`).join('\n');
+
+  const system = `你是一个严谨的${subj}错题本数字化助手，服务对象是山东高一学生。
+你的唯一任务是把一页错题本的照片转换成结构化数据，供后续复习系统使用。
+
+铁律：
+1. 只提取页面上真实存在的内容。绝对不许自己解题、自己编造标准答案或解析。
+2. 页面上没有的字段一律填 null。宁可空着让人补，也不能猜。
+3. 手写内容识别不确定时，在对应字段里如实照抄你看到的字，并把 confidence 调低。
+4. 公式一律用 LaTeX：行内用 $...$，独立成行用 $$...$$。分数用 \\frac{}{}，根号用 \\sqrt{}。
+5. 图片、几何图、坐标系无法转成文字时，用占位符 [图] 标注它出现在题干哪个位置。
+6. 一页可能有 1-6 道题。务必逐道分开，不要合并，也不要把一道题拆成两道。`;
+
+  const user = `请识别这一页错题本。
+
+科目：${subj}
+
+可选考点（kp 字段必须从这里选，最多填 2 个，用完全相同的字面）：
+${kpText}
+
+${extraNote ? `学生补充说明：${extraNote}\n` : ''}
+输出严格 JSON，格式：
+{
+  "questions": [
+    {
+      "stem": "题干全文（LaTeX 公式已转好），包含所有小问",
+      "my_answer": "页面上学生自己写的作答/思路，没有就 null",
+      "correct_answer": "页面上写的正确答案，没有就 null",
+      "solution": "页面上写的解析过程，没有就 null",
+      "error_cause": "页面上学生写的错因原文，没有就 null",
+      "error_type": "从这六个里选一个：${ERROR_TYPES.join('、')}；判断不了填 null",
+      "difficulty": 1,
+      "kp": ["考点名"],
+      "confidence": 0.9
+    }
+  ],
+  "page_note": "这一页整体有什么值得注意的（字迹模糊、跨页、有图等），没有就 null"
+}
+
+difficulty 打分标准：1=课本题 2=常规练习 3=中等题 4=较难 5=压轴/竞赛味
+confidence：你对这道题整体识别准确度的判断，0-1。`;
+
+  return [
+    { role: 'system', content: system },
+    {
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } },
+        { type: 'text', text: user },
+      ],
+    },
+  ];
+}
+
+// ---------------------------------------------------------------- 归因补全
+export function diagnoseMessages({ question }) {
+  const system = `你是一位${SUBJECT_NAME[question.subject_id] || '数学'}老师，擅长精准定位学生的错误根源。
+你不负责安慰，只负责说清楚"这一步为什么会错"。`;
+
+  const user = `学生这道题做错了，请做深度归因。
+
+【题目】
+${question.stem}
+
+【学生的作答】
+${question.my_answer || '（未记录）'}
+
+【正确答案】
+${question.correct_answer || '（未记录）'}
+
+【学生自己写的错因（可能很简略）】
+${question.error_cause || '（未记录）'}
+
+请输出严格 JSON：
+{
+  "root_cause": "一句话说清根本原因，指明具体在哪一步、哪个概念/公式上出的错",
+  "error_type": "从这六个里选一个：${ERROR_TYPES.join('、')}",
+  "chain": ["错误发生的推理链，3-5 步，每步一句话"],
+  "trap": "这道题的陷阱设计在哪，或者命题人想考什么",
+  "fix": "针对这个错因的具体纠正动作，要能今天立刻做，不要写'多练习'这种空话",
+  "related_kp": ["这道题背后还牵连哪些考点"]
+}`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+// ---------------------------------------------------------------- 变式
+const KIND_SPEC = {
+  same: {
+    name: '同构变式',
+    rule: '考点、解法结构完全一致，只换数字、换情境、换问法。用来确认"这个套路是不是真会了"。',
+  },
+  trap: {
+    name: '陷阱对比',
+    rule: '表面看起来和原题几乎一样，但有一处关键条件不同，导致解法或答案分叉。用来治"看错题"和"套错公式"。',
+  },
+  layered: {
+    name: '分层递进',
+    rule: '三道题由易到难递进：第一道只考最基础的一步，第二道接近原题难度，第三道在原题基础上多绕一个弯。',
+  },
+  cross: {
+    name: '跨考点综合',
+    rule: '把本题考点和另一个已学考点结合起来命一道综合题，考察知识串联。',
+  },
+};
+
+export function variantMessages({ question, kpNames, kinds }) {
+  const subj = SUBJECT_NAME[question.subject_id] || '数学';
+  const spec = kinds.map((k) => `- kind="${k}"（${KIND_SPEC[k]?.name}）：${KIND_SPEC[k]?.rule}`).join('\n');
+
+  const system = `你是一位有 20 年经验的${subj}命题老师，专门给高一学生出变式题。
+你的题必须满足三条：可解、可验证、不超纲。
+
+铁律：
+1. 范围严格限定在山东高一（人教A版必修一为主）。不要用高二高三的方法，不要用超纲结论。
+2. 每道题必须自己先算一遍，答案必须正确且唯一（除非原题就是开放题）。
+3. 解析要写清算理，不要只给答案。学生看解析要能自己复现。
+4. 不要出那种"换个数字答案不变"的假变式。
+5. 公式用 LaTeX：行内 $...$，独立 $$...$$。`;
+
+  const user = `请基于下面这道错题出变式。
+
+【原题】
+${question.stem}
+
+【正确答案】
+${question.correct_answer || '（未记录，请自行判定）'}
+
+【学生错因】
+${question.error_cause || question.error_cause_ai || '（未记录）'}
+
+【涉及考点】
+${kpNames.join('、') || '（未标注）'}
+
+【原题难度】
+${question.difficulty || 3} / 5
+
+请生成 ${kinds.length} 道题，每道对应一种：
+${spec}
+
+输出严格 JSON：
+{
+  "variants": [
+    {
+      "kind": "same",
+      "tier": "基础",
+      "stem": "题干",
+      "answer": "最终答案",
+      "solution": "完整解析，分步骤",
+      "why": "这道题对应原题的哪个薄弱点"
+    }
+  ]
+}`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+// ---------------------------------------------------------------- 月报
+export function monthlyMessages({ stats, digest, monthLabel }) {
+  const system = `你是一个学习策略分析师，服务对象是山东高一学生（六科：语数英物化生）。
+周报看"这周做了什么"，月报要看"这一个月暴露了什么结构性问题"。
+
+写作要求：
+1. 区分「反复错」和「偶发错」。错 1 次的多半是偶然，错 2 次以上才是缺口。
+2. 看趋势不看绝对值。每周新增是在收敛还是发散，比总数更重要。
+3. 必须给出本月的方法论沉淀——这是月报最重要的产出，是把零散错题压缩成可复用套路。
+4. 禁止空话，每个结论后面跟数据或题号。
+5. 用 Markdown，700 字以内。`;
+
+  const user = `请生成本月复盘。
+
+周期：${monthLabel}
+
+【统计数据】
+${JSON.stringify(stats, null, 2)}
+
+【本月错题摘要】
+${digest}
+
+请输出严格 JSON：
+{
+  "summary_md": "完整月报 Markdown，包含：## 本月整体趋势 / ## 结构性缺口（反复错的） / ## 偶发失分（不用管） / ## 下月三条策略 / ## 方法论沉淀",
+  "structural_weak": [{"kp": "考点", "times": 3, "pattern": "错法上的共性", "action": "怎么补"}],
+  "incidental": ["偶发失分，不用专门花时间的那类"],
+  "method_updates": [{"title": "方法论条目标题", "body": "可直接抄进方法论本子的完整内容"}]
+}`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+export function weeklyMessages({ stats, digest, weekLabel }) {
+  const system = `你是一个学习数据分析师，服务对象是山东高一学生（六科：语数英物化生）。
+你要把冷冰冰的数据变成一份他周日下午能花 3 分钟看完、并且知道下周该干什么的报告。
+
+写作要求：
+1. 只讲有数据支撑的结论。每个判断后面跟上具体数字或题号。
+2. 禁止空话。"要加强练习""注意基础"这种句子一律不许出现。
+3. 尖锐但克制。指出问题要具体到"哪个考点、错了几次、错在哪一类"。
+4. 行动项必须是下周能直接执行的，带具体数量。
+5. 用 Markdown，控制在 600 字以内。`;
+
+  const user = `请生成本周复盘。
+
+周期：${weekLabel}
+
+【统计数据】
+${JSON.stringify(stats, null, 2)}
+
+【本周错题摘要】
+${digest}
+
+请输出严格 JSON：
+{
+  "summary_md": "完整的一页纸周报 Markdown，包含四个小节：## 本周趋势 / ## 三个最该补的洞 / ## 下周行动清单 / ## 方法论更新",
+  "top_weak_kps": [{"kp": "考点名", "evidence": "凭据", "action": "下周动作"}],
+  "method_updates": [{"title": "方法论条目标题", "body": "可直接抄进方法论本子的内容"}]
+}`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
