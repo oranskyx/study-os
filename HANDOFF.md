@@ -397,18 +397,24 @@ npm run test:all     # 推荐：隔离环境跑全部 5 个套件
 
 ## 14. 上传到 GitHub
 
-仓库里**不该有**：`data/`、`node_modules/`、`.env`、`.npm-cache/`、`*.log` —— `.gitignore` 已经排除了。
+**状态：已发布** → <https://github.com/oranskyx/study-os>（public，默认分支 `main`）。
+
+日常推送：
 
 ```powershell
 cd study-os
-git init
-git add .
-git status              # 确认没把 data/ 或 .env 加进去
-git commit -m "feat: 错题中枢 study-os 初始版本"
-git branch -M main
-git remote add origin https://github.com/<你的账号>/study-os.git
-git push -u origin main
+git add -A
+git commit -m "feat: ..."
+git push            # origin 已配置好，直接推
 ```
+
+CI 在 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)：push / PR 时在
+`ubuntu-latest` 和 `windows-latest` 上各跑一次 `npm ci && npm run test:all`。
+Linux 上没有 Edge，`test:mobile` 按设计以退出码 2 跳过（`test:all` 记为「跳过」，不算失败）；
+Windows runner 自带 Edge，39 项移动端断言会真跑。
+
+仓库里**不该有**：`data/`、`node_modules/`、`.env`、`.npm-cache/`、`*.log` —— `.gitignore` 已经排除了。
+`.gitattributes` 保证 `.cmd/.vbs` 检出时是 CRLF（cmd.exe 依赖 CRLF），其余文件统一 LF。
 
 **推送前自查**：
 
@@ -491,3 +497,19 @@ D:\oransky\Desktop\oransky\dsh\study-os
 
 - 拍照双入口（`capture` 必须用 `<label>` 包裹）、裁切旋转编辑器、识别结果 LaTeX 即时预览、
   测试配置守卫（`tools/settings-guard.mjs`）。
+
+---
+
+## 17. 发布到 GitHub（2026-11-09 晚）
+
+- 仓库：<https://github.com/oranskyx/study-os>（public，`main`，两个提交）。
+- 仓库门面：README 顶部加徽章 + 4 张移动端截图（`docs/images/`，源图仍在 `data/_shots/`）；
+  补「功能一览 / 技术栈 / 目录 / 路线图（原第 13 节）」，原作者的论述全部保留。
+- 新增 `.github/workflows/ci.yml`（ubuntu + windows 双平台跑 `npm run test:all`）与
+  `.github/dependabot.yml`；首次推送后两个 job 全绿（Linux 上 `test:mobile` 跳过，Windows 上 39 项真跑）。
+- 新增 `.gitattributes`（`.cmd/.vbs` 强制 CRLF）与 `.editorconfig`；`package.json` 补
+  `repository/homepage/bugs/keywords` 和 `npm test` 别名。
+- 提交身份：`oransky <157782068+oranskyx@users.noreply.github.com>`。
+- 本机网络：GitHub 走 Watt Toolkit（SteamTools）的本机 MITM，TCP 代理 127.0.0.1:7890 是**关的**，
+  所以仓库本地配置了 `http.proxy=""`；git 用 schannel 认系统根证书，能直接推。
+  若哪天推送报 502，多半是 Watt Toolkit 那条线路在抽风，重试或换加速节点。
