@@ -32,8 +32,15 @@ function kpOptions(subjectId, selected = '') {
 
 /** 保留 $...$ / $$...$$ 数学片段，其余做 HTML 转义。
  *  这样 LaTeX 里的 < > 不会被吃掉，又不会引入标签注入。 */
+/** 模型有时会输出 MathJax 的 \( ... \) / \[ ... \]，统一成 $ ... $ 再交给 KaTeX */
+function normMath(s) {
+  return String(s ?? '')
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_, x) => '$$' + x + '$$')
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_, x) => '$' + x + '$');
+}
+
 function mEsc(s) {
-  const parts = String(s ?? '').split(/(\$\$[\s\S]*?\$\$|\$[^$\n]*?\$)/g);
+  const parts = normMath(s).split(/(\$\$[\s\S]*?\$\$|\$[^$\n]*?\$)/g);
   return parts
     .map((p) => {
       if (/^\$\$[\s\S]*\$\$$/.test(p) || /^\$[^$\n]*\$$/.test(p)) return p;

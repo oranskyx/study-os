@@ -3,8 +3,14 @@
 const esc = (s) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+function normMath(s) {
+  return String(s ?? '')
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_, x) => '$$' + x + '$$')
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_, x) => '$' + x + '$');
+}
+
 function mEsc(s) {
-  const parts = String(s ?? '').split(/(\$\$[\s\S]*?\$\$|\$[^$\n]*?\$)/g);
+  const parts = normMath(s).split(/(\$\$[\s\S]*?\$\$|\$[^$\n]*?\$)/g);
   return parts
     .map((p) => {
       if (/^\$\$[\s\S]*\$\$$/.test(p) || /^\$[^$\n]*\$$/.test(p)) return p;
