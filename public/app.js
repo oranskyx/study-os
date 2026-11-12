@@ -380,6 +380,7 @@ async function viewCapture() {
         <p class="muted" style="margin:0 0 10px">
           逐条核对。看不准的字段留空比填错好——错的东西进了库，后面复习全是浪费。
         </p>
+        ${cap.page ? '<details class="orig"><summary>对照原图</summary><img src="/uploads/' + esc(cap.page.image_path) + '" alt="原图" loading="lazy"></details>' : ''}
         <div id="drafts"></div>
         <div class="row" style="margin-top:12px">
           <button class="btn primary" data-act="save-drafts">全部存入错题库</button>
@@ -428,6 +429,8 @@ function mountDraftPreview(root) {
 
 function draftCard(d, i) {
   const conf = typeof d.confidence === 'number' ? Math.round(d.confidence * 100) : null;
+  // 模型没把图翻成文字、只留了 [图]/【图】：必须提示，否则这条入库就是废的
+  const figPlaceholder = /[【\[]\s*图\s*[】\]]|图看不清/.test(String(d.stem || ''));
   const confColor = conf == null ? 'var(--muted)' : conf >= 80 ? 'var(--ok)' : conf >= 55 ? 'var(--warn)' : 'var(--bad)';
   const chapterOpts = kpOptions(d.subject_id || S.cap.subject, d.kp_name);
 
@@ -442,6 +445,7 @@ function draftCard(d, i) {
         ${conf != null ? `<span class="badge" style="color:${confColor}">置信 ${conf}%</span>` : ''}
         ${d.kp_alt?.length ? `<span class="badge">还可能是：${esc(d.kp_alt.slice(0, 2).join(' / '))}</span>` : ''}
       </div>
+      ${figPlaceholder ? '<div class="hint warn" style="margin:8px 0 10px">这题有图，但模型只留了「[图]」占位。展开下面的「对照原图」照着补一句〔图：……〕，或者把图里的已知条件直接抄进题干——不然以后回看这道题，等于没有题。</div>' : ''}
       <label class="field">
         <span>考点</span>
         <select data-dk="kp_name" data-i="${i}">
@@ -633,6 +637,7 @@ async function viewQuestion(id) {
         ${q.error_count > 1 ? `<span class="badge" style="color:var(--bad)">累计错 ${q.error_count} 次</span>` : ''}
       </div>
       <div class="stem" style="margin-bottom:12px">${richInline(q.stem)}</div>
+      ${d.page ? '<details class="orig"><summary>看原图（第 ' + d.page.id + ' 页）</summary><img src="/uploads/' + esc(d.page.image_path) + '" alt="原图" loading="lazy"></details>' : ''}
       <label class="field">
         <span>考点（改完立刻生效，趋势分析和薄弱点排行都靠它）</span>
         <select data-act="setKp" data-id="${q.id}">

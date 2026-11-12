@@ -302,6 +302,26 @@ textarea { min-height: 68px; line-height: 1.65; }
 }
 .q .id { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* ---------------------------------------------------------- 原图对照 */
+.orig { margin: 0 0 12px; }
+.orig > summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink-2);
+  padding: 6px 0;
+  list-style: none;
+}
+.orig > summary::-webkit-details-marker { display: none; }
+.orig > summary::before { content: '▸ '; color: var(--muted); }
+.orig[open] > summary::before { content: '▾ '; }
+.orig img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  margin: 4px 0 10px;
+}
+
 /* ---------------------------------------------------------- 空态 */
 .empty {
   text-align: center;
