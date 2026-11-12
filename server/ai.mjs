@@ -31,6 +31,7 @@ export async function chat({
   json = false,
   maxTokens = 8000,
   thinking = false,
+  effort = null,
   timeoutMs = 180_000,
   temperature = 0.3,
   signal,
@@ -52,9 +53,13 @@ export async function chat({
     stream: false,
   };
   if (json) body.response_format = { type: 'json_object' };
-  // DeepSeek 文档支持显式 disabled；其他厂商不认这个字段时会自动去掉重试
+  // 思考强度：OpenAI 兼容网关一般认 reasoning_effort，DeepSeek 认 thinking。
+  // 两个都带，厂商不认的字段会在 400 时自动去掉重试。
+  const level = effort || cfg.effort || null;
+  if (level) body.reasoning_effort = level;
   if (thinking === false) body.thinking = { type: 'disabled' };
   if (thinking === true) body.thinking = { type: 'enabled' };
+  if (level === 'high' || level === 'medium') body.thinking = { type: 'enabled' };
 
   const doFetch = async (payload) => {
     const ac = new AbortController();
@@ -102,10 +107,15 @@ export async function chat({
   try {
     return await doFetch(body);
   } catch (e) {
-    // 有些厂商不认 thinking 字段，去掉再试一次
-    if (e.status === 400 && /think/i.test(e.body || '')) {
-      const { thinking: _drop, ...rest } = body;
-      return await doFetch(rest);
+    // 有些厂商不认 thinking / reasoning_effort / response_format，
+    // 400 时逐个去掉再试，别让一个可选字段把整个功能卡死。
+    if (e.status === 400) {
+      const retry = { ...body };
+      let changed = false;
+      for (const k of ['reasoning_effort', 'thinking', 'response_format']) {
+        if (k in retry) { delete retry[k]; changed = true; }
+      }
+      if (changed) return await doFetch(retry);
     }
     throw e;
   }

@@ -18,7 +18,7 @@ import {
   PROVIDER_PRESETS,
 } from './settings.mjs';
 import {
-  extractMessages, diagnoseMessages, variantMessages, weeklyMessages, monthlyMessages,
+  extractMessages, diagnoseMessages, variantMessages, weeklyMessages, monthlyMessages, solutionMessages,
 } from './prompts.mjs';
 import {
   isoWeek, isoDate, weekRange, weeklyStats, weekDigest,
@@ -99,7 +99,8 @@ app.get('/api/meta', wrap(async (_req, res) => {
     sheetWeek: sw,
     sheetWeekRange: { start: isoDate(swRange.start), end: isoDate(swRange.end) },
     subjects: all('SELECT * FROM subjects ORDER BY sort'),
-    kps: kpList('math'),
+    // 全部科目的考点（带 subject_id）。以前只给数学，导致选标注时只有数学章节。
+    kps: all('SELECT id, subject_id, chapter, name FROM kps ORDER BY subject_id, id'),
     config: configStatus(),
     rules: CONFIG,
     counts: {
@@ -201,10 +202,11 @@ app.post('/api/pages/:id/extract', wrap(async (req, res) => {
 
 // ---------------------------------------------------------------- 错题
 app.get('/api/questions', wrap(async (req, res) => {
-  const { status, kp, q, limit = 200 } = req.query;
+  const { status, kp, q, subject, limit = 200 } = req.query;
   const where = ['deleted_at IS NULL'];
   const p = [];
   if (status && status !== 'all') { where.push('status=?'); p.push(status); }
+  if (subject && subject !== 'all') { where.push('subject_id=?'); p.push(subject); }
   if (kp) { where.push('kp_name LIKE ?'); p.push(`%${kp}%`); }
   if (q) { where.push('(stem LIKE ? OR error_cause LIKE ?)'); p.push(`%${q}%`, `%${q}%`); }
   p.push(Math.min(500, Number(limit) || 200));
@@ -271,8 +273,8 @@ app.post('/api/questions/bulk', wrap(async (req, res) => {
 
 const EDITABLE = [
   'stem', 'my_answer', 'correct_answer', 'solution', 'error_cause', 'error_cause_ai',
-  'error_type', 'difficulty', 'kp_id', 'kp_name', 'variant_mode', 'notes',
-  'status', 'error_count', 'correct_streak', 'last_error_at', 'first_error_at',
+  'error_type', 'difficulty', 'kp_id', 'kp_name', 'variant_mode', 'notes', 'subject_id',
+  'status', 'error_count', 'correct_streak', 'review_count', 'last_error_at', 'first_error_at',
 ];
 
 app.patch('/api/questions/:id', wrap(async (req, res) => {
@@ -312,6 +314,22 @@ app.post('/api/questions/:id/attempt', wrap(async (req, res) => {
 }));
 
 /** 深度归因：AI 补全错因链 */
+// 按需生成解析：识题阶段不生成，学生点了按钮才花钱
+app.post('/api/questions/:id/solution', wrap(async (req, res) => {
+  const q = get('SELECT * FROM questions WHERE id=? AND deleted_at IS NULL', Number(req.params.id));
+  if (!q) return res.status(404).json({ error: '错题不存在' });
+  const out = await chat({
+    kind: 'text',
+    messages: solutionMessages({ question: q }),
+    maxTokens: 4000,
+    effort: 'high',
+  });
+  const solution = String(out.content || '').trim();
+  if (!solution) throw new Error('模型没有返回解析，重试一次或换更强的模型');
+  update('questions', q.id, { solution, updated_at: nowISO() });
+  res.json({ question: get('SELECT * FROM questions WHERE id=?', q.id), usage: out.usage });
+}));
+
 app.post('/api/questions/:id/diagnose', wrap(async (req, res) => {
   const q = get('SELECT * FROM questions WHERE id=? AND deleted_at IS NULL', Number(req.params.id));
   if (!q) return res.status(404).json({ error: '错题不存在' });

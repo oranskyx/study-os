@@ -8,59 +8,86 @@
 <script defer src="/vendor/katex/katex.min.js"></script>
 <script defer src="/vendor/katex/contrib/auto-render.min.js"></script>
 <style>
+  /* 瑞士国际主义：直角、粗黑线、等宽数字、单一红强调色。打印友好。 */
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 18px 16px 40px;
-    font: 13px/1.6 "Songti SC", "SimSun", "Microsoft YaHei", serif;
+    padding: 16px 14px 44px;
+    font: 12.5px/1.65 "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
     color: #000;
-    background: #f0f0f0;
+    background: #d9d5cd;
+    font-feature-settings: "tnum" 1;
   }
   .sheet {
     max-width: 200mm;
-    margin: 0 auto 16px;
+    margin: 0 auto 18px;
     background: #fff;
-    padding: 14mm 12mm;
-    box-shadow: 0 2px 10px rgba(0,0,0,.12);
+    padding: 16mm 14mm 14mm;
+    border-top: 3pt solid #000;
   }
-  h1 { font-size: 17px; margin: 0 0 2px; letter-spacing: 1px; }
-  .meta { font-size: 11.5px; color: #555; margin-bottom: 10px; }
+  h1 {
+    font-size: 22pt; font-weight: 700; letter-spacing: -.02em;
+    margin: 0 0 2px; line-height: 1.1;
+  }
+  .meta {
+    font: 8.5pt/1.4 "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: .12em; text-transform: uppercase; color: #555;
+    margin-bottom: 10px; padding-bottom: 8px;
+    border-bottom: 1px solid #000;
+  }
   .tip {
-    font-size: 11.5px; color: #333; border: 1px solid #bbb;
-    padding: 6px 9px; margin-bottom: 12px; line-height: 1.7;
+    font-size: 9.5pt; color: #111; border: 1px solid #000;
+    padding: 7px 9px; margin-bottom: 12px; line-height: 1.65;
   }
   .day { margin-top: 14px; break-inside: avoid; }
   .day > h2 {
-    font-size: 13px; margin: 0 0 7px; padding-bottom: 3px;
-    border-bottom: 1.5px solid #000; display: flex; justify-content: space-between;
+    font-size: 10.5pt; font-weight: 700; letter-spacing: .04em;
+    margin: 0 0 8px; padding-bottom: 3px;
+    border-bottom: 1.6pt solid #000;
+    display: flex; justify-content: space-between; align-items: baseline;
   }
+  .day > h2 .n { font-family: "SF Mono", Menlo, monospace; font-weight: 400; color: #555; }
   .item { margin-bottom: 13px; break-inside: avoid; }
-  .item .no { font-size: 11.5px; color: #444; margin-bottom: 2px; }
-  .item .stem { font-size: 12.5px; line-height: 1.75; }
-  .item .blank { height: 26px; border-bottom: 1px dotted #bbb; margin-top: 5px; }
+  .item .no {
+    font: 8.5pt/1 "SF Mono", Menlo, monospace; letter-spacing: .1em;
+    color: #000; margin-bottom: 3px;
+  }
+  .item .stem { font-size: 11pt; line-height: 1.75; }
+  .item .blank { height: 26px; border-bottom: 1px dotted #999; margin-top: 6px; }
   .item .blank.short { height: 22px; }
-  .chk { display: inline-block; width: 13px; height: 13px; border: 1px solid #000; vertical-align: -2px; margin-right: 3px; }
-  .answers { page-break-before: always; }
+  .chk {
+    display: inline-block; width: 12px; height: 12px;
+    border: 1.2px solid #000; vertical-align: -2px; margin-right: 4px;
+  }
+  .answers { page-break-before: always; border-top-color: #d92b1c; }
+  .answers h1 { color: #d92b1c; }
   .answers .item .no { font-weight: 700; }
-  .ans { font-size: 12px; line-height: 1.7; }
-  .ans .k { color: #000; font-weight: 700; }
+  .ans { font-size: 10.5pt; line-height: 1.7; }
+  .ans .k {
+    font: 8pt/1 "SF Mono", Menlo, monospace; letter-spacing: .1em;
+    text-transform: uppercase; color: #555; margin-right: 6px;
+  }
   .katex { font-size: 1em; }
   .toolbar {
     position: sticky; top: 0; z-index: 9;
-    display: flex; gap: 8px; justify-content: center;
-    padding: 8px; margin: -18px -16px 14px;
-    background: #fff; border-bottom: 1px solid #ddd;
+    display: flex; gap: 0; justify-content: center;
+    padding: 8px; margin: -16px -14px 16px;
+    background: #f1efea; border-bottom: 2px solid #000;
   }
   .toolbar button {
-    font: inherit; padding: 8px 18px; border: 1px solid #ccc;
-    background: #fff; border-radius: 7px; cursor: pointer;
+    font: 600 13px/1 "Helvetica Neue", Arial, "PingFang SC", sans-serif;
+    letter-spacing: .04em;
+    padding: 10px 20px; border: 1px solid #000; border-left-width: 0;
+    background: #fff; color: #000; border-radius: 0; cursor: pointer;
   }
-  .toolbar button.primary { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+  .toolbar button:first-child { border-left-width: 1px; }
+  .toolbar button.primary { background: #000; color: #fff; }
+  .toolbar button:hover { background: #d92b1c; border-color: #d92b1c; color: #fff; }
   @media print {
     body { background: #fff; padding: 0; }
     .toolbar { display: none; }
-    .sheet { box-shadow: none; max-width: none; margin: 0; padding: 0; }
-    @page { margin: 12mm; }
+    .sheet { max-width: none; margin: 0; padding: 0; border-top: 0; }
+    @page { size: A4; margin: 14mm 12mm; }
   }
 </style>
 </head>
