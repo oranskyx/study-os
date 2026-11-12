@@ -20,6 +20,7 @@ import {
 import {
   extractMessages, diagnoseMessages, variantMessages, weeklyMessages, monthlyMessages, solutionMessages,
 } from './prompts.mjs';
+import { examsRouter } from './exams.mjs';
 import {
   isoWeek, isoDate, weekRange, weeklyStats, weekDigest,
   buildSheet, sheetDetail, fillSheet, recordAttempt,
@@ -674,6 +675,9 @@ app.use(
   '/vendor/katex',
   express.static(path.join(ROOT, 'node_modules', 'katex', 'dist'), { maxAge: '7d' })
 );
+// 试卷分析：独立路由，避免 index.mjs 继续膨胀
+app.use('/api/exams', examsRouter());
+
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
 app.use('/', express.static(PUBLIC_DIR, { extensions: ['html'] }));
 

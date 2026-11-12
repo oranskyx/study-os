@@ -460,6 +460,45 @@ D:\oransky\Desktop\oransky\dsh\study-os
 
 ## 16. 变更记录
 
+### 2026-11-13（第五轮：试卷分析）
+
+新增「考试」页（第 7 个页签）：传原卷/答题卡/答案 → 自动判类型 → 识别 → 人工核对 → 收错题 → 失分分析。
+
+**数据模型（db.mjs）**：exams / exam_pages / exam_items 三张表；questions 加 exam_id、exam_item_id 两列
+（ALTER TABLE 兼容旧库，不需要重建）。删考试会连带删图片与暂存条目，但已收进错题库的题不受影响。
+
+**接口（server/exams.mjs，独立 Router 挂 /api/exams）**
+
+- 考试：GET/POST /，GET/PATCH/DELETE /:id
+- 图片：POST /:id/pages（一次 20 张）、PATCH/DELETE /pages/:pid
+- 识别：POST /pages/:pid/extract（视觉模型，返回判定的 role 与题目草稿）
+- 暂存：POST /:id/merge（按题号合并、同题号补空字段不覆盖人工修改）、
+  POST /:id/items（手工补一道）、GET /:id/items、PATCH/DELETE /items/:iid
+- 入库：POST /:id/import（默认只收 wrong/partial，带分数与批改痕迹）
+- 分析：GET /:id/analysis（失分按考点/题型/难度、丢分 Top、同科目历次）
+
+**提示词（prompts.mjs examPageMessages）**
+
+先把图判成 paper / answer_sheet / answer_key / graded / mixed / unknown 六类之一（给置信度和理由），
+再按类型抽题。特别写了三条：手写 vs 印刷要标 handwriting；批改痕迹（×、-2、半对）要折算成
+score_got 与 verdict；答案只能来自答案页/评分标准，不许自己解题。图形仍按上一轮的规则文字化。
+
+**前端（public/exams.js，独立 ESM，挂 window.__exams）**
+
+列表 / 新建 / 详情三段式（①上传与识别 ②人工核对 ③分析）。选图后先看类型再识别，
+识别完合并，核对页把 10 个字段摊平在一张卡上改，「保存全部修改」一次性 PATCH。
+app.js 通过 window.__app 提供 api/esc/toast/kpOptions 等工具，点击事件按 ^exam- 前缀委托过来。
+
+**测试**：新增 tools/examtest.mjs（28 项），并给 mock-ai.mjs 加了"高考阅卷组"分支，
+所以「上传两张 → 改类型 → 识别 → 合并 → 不重复合并」这条链路在 test:all 里是真跑通的。
+总断言 213 项。
+
+**已知取舍**
+
+- 一场考试只对应一个科目（同一晚可以建多场），避免统计口径混乱；
+- 答题卡按中高考标准卷处理，涂卡识别不准时 my_answer 留 null 并提示人工确认；
+- 跨页的题目前只靠 incomplete 标记提示，没有自动拼接。
+
 ### 2026-11-13（第四轮：月报数据看板）
 
 周报/月报原来只有 4 个数字 + 几条排行，看不出"趋势"。本轮把统计做成看板。

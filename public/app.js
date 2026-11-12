@@ -202,11 +202,21 @@ const S = {
   },
 };
 
+// ---------------------------------------------------------------- 给 exams.js 的工具桥
+window.__app = {
+  api, esc, toast, render, go,
+  richInline: (x) => richInline(x),
+  richBlock: (x) => richBlock(x),
+  kpOptions: (a, b) => kpOptions(a, b),
+  get S() { return S; },
+};
+
 // ---------------------------------------------------------------- 导航
 const TABS = [
   ['home', '首页'],
   ['capture', '录入'],
   ['bank', '错题库'],
+  ['exams', '考试'],
   ['sheet', '复习单'],
   ['report', '周报'],
   ['settings', '设置'],
@@ -1067,7 +1077,15 @@ async function render() {
     $('#netState').textContent = S.meta.config.vision.ready ? '' : '未配置模型';
 
     let html = '';
-    if (name === 'capture') html = await viewCapture();
+    if (name === 'exams') {
+      const EX = window.__exams;
+      const sub = (arg || '').toLowerCase();
+      if (!EX) html = '<div class="hint err">考试模块没加载，刷新页面试试。</div>';
+      else if (sub === 'new') html = await EX.viewNew();
+      else if (arg) html = await EX.viewDetail(Number(arg));
+      else html = await EX.viewList();
+    }
+    else if (name === 'capture') html = await viewCapture();
     else if (name === 'bank') html = await viewBank();
     else if (name === 'q') html = await viewQuestion(Number(arg));
     else if (name === 'sheet') html = await viewSheet();
@@ -1099,6 +1117,12 @@ document.addEventListener('click', async (e) => {
 
   try {
     if (act === 'nav') return go(el.dataset.to);
+
+    // 考试模块的交互（exams.js）
+    if (window.__exams && /^exam-/.test(act)) {
+      const handled = await window.__exams.handle(act, el, e);
+      if (handled !== false) return;
+    }
 
     // 拍照/相册改用 <label> 直接包住 input，浏览器认这是真实用户手势，
     // 才不会忽略 capture="environment" 直接弹相册。
@@ -1771,6 +1795,7 @@ async function handlePhoto(file) {
 
 // ---------------------------------------------------------------- 启动
 window.addEventListener('hashchange', render);
+if (window.__exams) window.__exams.bindEvents();
 
 (async function boot() {
   try {

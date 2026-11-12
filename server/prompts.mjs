@@ -291,3 +291,104 @@ export function solutionMessages({ question }) {
     { role: 'user', content: user },
   ];
 }
+
+// ---------------------------------------------------------------- 试卷识别
+const PAGE_ROLES = [
+  ['paper', '只有题目（空白原卷）'],
+  ['answer_sheet', '答题卡（学生作答 + 老师批改的分数/对错标记）'],
+  ['answer_key', '答案或评分标准（参考答案、解析、评分细则）'],
+  ['graded', '老师批改过的整份试卷（题目 + 学生作答 + 批改痕迹在同一张纸上）'],
+  ['mixed', '一张纸上同时有题目和部分作答/答案'],
+  ['unknown', '判断不了'],
+];
+
+const QTYPES = [
+  ['choice', '选择题（单选/多选）'],
+  ['fill', '填空题'],
+  ['short', '简答题'],
+  ['essay', '作文/论述题'],
+  ['calc', '计算/证明题'],
+];
+
+export function examPageMessages({ imageDataUrl, subjectId, examName, examType, roleHint = '', kpList }) {
+  const subj = SUBJECT_NAME[subjectId] || '数学';
+  const kpText = kpList.map((k) => '- ' + k.chapter + ' / ' + k.name).join('\n');
+
+  const system = `你是高考阅卷组的试卷数字化助手，负责把一张试卷照片拆成结构化题目数据。
+服务对象是山东高一学生，正在做考后复盘。
+
+第一步：判断这张图是什么。
+${PAGE_ROLES.map(([k, d]) => '- ' + k + '：' + d).join('\n')}
+
+第二步：按类型抽取内容。铁律：
+1. 只抽页面上真实存在的字。不许解题、不许补答案、不许编造。
+2. 标准答案只能来自「答案页/评分标准/批改痕迹」。页面上没有就填 null。
+3. 学生作答要分清：手写笔迹属于学生，印刷体属于原卷。能手写/印刷区分时，
+   在 handwriting 字段写 printed / handwritten / mixed；分不清就 null。
+4. 批改痕迹要读出来：√、×、半对、扣分「-3」、打勾、圈号、总分都要折算进
+   score_got 与 verdict（right / wrong / partial / unknown）。
+   看到一个题旁边写着「-2」且满分 5，那 score_got 就是 3。
+5. 选择题：options 按 A/B/C/D 分项抽全；学生涂卡若无法确定选项，my_answer 留 null，
+   在 grading_note 写「涂卡不清，需人工确认」。
+6. 题号照抄页面上的（1、12、(3)、21(1)），不要自己重排；一道大题多个小问，
+   在 q_no 里写成 21(1)、21(2)，或整题一条并在 stem 里保留小问。
+7. 公式一律 LaTeX：行内 \$...\$，独立成行 \$\$...\$\$。
+8. 图、表格、电路图必须翻成文字（详见图形规则），不能只写 [图]。
+9. 跨页的题：这张图里不完整的题目，在 incomplete 里标 true，系统会提示学生补齐。
+10. 这张图可能只有答案没有题干（答案页），那就 q_no + correct_answer 填好，stem 留 null。
+
+图形规则（必读）：
+- 几何图：写出〔图：点/线/角及标注值、平行垂直相等中点角平分线等关系〕
+- 函数图象：坐标系、表达式、关键点、单调区间、阴影区域对应的不等式
+- 表格：用 Markdown 表格还原
+- 电路/受力：元件连接方式、电流方向、力的大小方向
+- 实在看不清：写〔图看不清：…〕并降 confidence`;
+
+  const user = `科目：${subj}
+考试：${examName || '（未命名）'}（${examType || '自定义'}）
+${roleHint ? '学生说这张大概是：' + roleHint + '（仅供参考，以你看到的为准）\n' : ''}
+可选考点（kp 必须从这里挑，最多 2 个，字面完全一致）：
+${kpText}
+
+输出严格 JSON：
+{
+  "page_role": "paper|answer_sheet|answer_key|graded|mixed|unknown",
+  "role_confidence": 0.0,
+  "role_reason": "一句话说明你凭什么这么判断",
+  "page_note": "这张图的整体情况（字迹、裁切、缺页等），没有就 null",
+  "questions": [
+    {
+      "q_no": "12",
+      "qtype": "choice|fill|short|essay|calc",
+      "stem": "题干（图形已文字化），没有就 null",
+      "options": {"A": "选项内容", "B": "...", "C": "...", "D": "..."},
+      "my_answer": "学生的作答，没有就 null",
+      "correct_answer": "标准答案（只能来自答案页/评分标准/批改），没有就 null",
+      "solution": "解析（只在页面上有解析时填），没有就 null",
+      "grading_note": "批改痕迹原文，例如「√ 5分」「-2 步骤不全」，没有就 null",
+      "score_full": 5,
+      "score_got": 3,
+      "verdict": "right|wrong|partial|unknown",
+      "kp": ["考点名"],
+      "difficulty": 1,
+      "handwriting": "printed|handwritten|mixed|null",
+      "incomplete": false,
+      "confidence": 0.9
+    }
+  ]
+}
+
+difficulty：1=送分 2=基础 3=中档 4=较难 5=压轴
+confidence：这道题整体识别准确度，0-1，拿不准就压低。`;
+
+  return [
+    { role: 'system', content: system },
+    {
+      role: 'user',
+      content: [
+        { type: 'image_url', image_url: { url: imageDataUrl, detail: 'high' } },
+        { type: 'text', text: user },
+      ],
+    },
+  ];
+}

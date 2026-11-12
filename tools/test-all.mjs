@@ -138,6 +138,7 @@ const SUITES = [
   ['test:math', 'mathtest.mjs'],
   ['test:ui', 'uidom.mjs'],
   ['test:api', 'smoke.mjs'],
+  ['test:exam', 'examtest.mjs'],
   ['test:mobile', 'mobilecheck.mjs'],
 ];
 
