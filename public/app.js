@@ -776,7 +776,13 @@ async function viewSheet() {
 
   h.push(`
     <div class="card">
-      <h2><span class="dot"></span>回收：做对打 √，做错打 ×</h2>
+      <h2><span class="dot"></span>回收：做对 √，做错 ×，没做点「空」</h2>
+      <div class="row" style="gap:6px;margin:0 0 10px">
+        <button class="btn sm" data-act="sheet-bulk" data-r="correct">全部做对</button>
+        <button class="btn sm" data-act="sheet-bulk" data-r="wrong">全部做错</button>
+        <button class="btn sm" data-act="sheet-bulk" data-r="missed">全部没做</button>
+        <button class="btn sm ghost" data-act="sheet-bulk" data-r="clear">清空</button>
+      </div>
       ${Object.keys(byDay).sort()
         .map((day) => `
         <div class="day-group">
@@ -794,6 +800,7 @@ async function viewSheet() {
                 <div class="marks">
                   <button class="ok ${r === 'correct' ? 'on ok' : ''}" data-act="sheet-mark" data-q="${it.question_id}" data-r="correct">√</button>
                   <button class="bad ${r === 'wrong' ? 'on bad' : ''}" data-act="sheet-mark" data-q="${it.question_id}" data-r="wrong">×</button>
+                  <button class="skip ${r === 'missed' ? 'on skip' : ''}" data-act="sheet-mark" data-q="${it.question_id}" data-r="missed">空</button>
                 </div>
               </div>`;
             })
@@ -1252,6 +1259,13 @@ document.addEventListener('click', async (e) => {
       S.sheet.busy = false;
       S.sheet.results = {};
       toast(`复习单已生成，共 ${r.total} 题`, 'ok');
+      return render();
+    }
+
+    if (act === 'sheet-bulk') {
+      const rr = el.dataset.r;
+      if (rr === 'clear') { S.sheet.results = {}; return render(); }
+      for (const b of document.querySelectorAll('[data-act="sheet-mark"]')) S.sheet.results[b.dataset.q] = rr;
       return render();
     }
 

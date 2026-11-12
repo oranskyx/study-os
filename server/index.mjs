@@ -445,8 +445,16 @@ app.get('/api/sheet/:id', wrap(async (req, res) => {
 }));
 
 app.post('/api/sheet/:id/fill', wrap(async (req, res) => {
-  const out = fillSheet(Number(req.params.id), req.body?.results || {});
-  res.json(out);
+  const body = req.body || {};
+  const results = { ...(body.results || {}) };
+  // 批量：给一个默认值，没单独勾的题全按它算（复习单 20 题点 40 次的优化）
+  if (['correct', 'wrong', 'missed'].includes(body.default)) {
+    const d = sheetDetail(Number(req.params.id));
+    for (const it of d?.items || []) {
+      if (!(it.question_id in results)) results[it.question_id] = body.default;
+    }
+  }
+  res.json(fillSheet(Number(req.params.id), results));
 }));
 
 app.delete('/api/sheet/:id', wrap(async (req, res) => {

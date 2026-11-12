@@ -150,7 +150,7 @@ export function reportDashboard(st, monthMode) {
   if (comp.total) {
     out.push('<div class="card"><h2><span class="dot"></span>复习单完成度</h2>' +
       progress('排进单子的题，做完了多少', comp.done, comp.total,
-        '做对 ' + comp.correct + ' · 做错 ' + comp.wrong + ' · 还没回填 ' + comp.pending) +
+        '做对 ' + comp.correct + ' · 做错 ' + comp.wrong + ' · 没做 ' + (comp.missed || 0) + ' · 待回填 ' + comp.pending) +
       (comp.completion != null && comp.completion < 50
         ? '<p class="hint warn" style="margin:10px 0 0">完成率不到一半。要么单子排多了，要么这周没时间——先减量，别硬撑。</p>'
         : '') + '</div>');

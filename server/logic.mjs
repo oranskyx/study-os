@@ -271,12 +271,13 @@ export function fillSheet(sheetId, results) {
   for (const [qidRaw, result] of Object.entries(results)) {
     const qid = Number(qidRaw);
     if (!byId.has(qid)) continue;
-    if (result !== 'correct' && result !== 'wrong') continue;
+    if (result !== 'correct' && result !== 'wrong' && result !== 'missed') continue;
     run(
       'UPDATE sheet_items SET result=?, filled_at=? WHERE sheet_id=? AND question_id=?',
       result, nowISO(), sheetId, qid
     );
-    recordAttempt(qid, result, 'sheet');
+    // 「没做」只是一次状态标记：不算一次作答，不推进遗忘曲线
+    if (result !== 'missed') recordAttempt(qid, result, 'sheet');
     touched.push(qid);
   }
   run("UPDATE sheets SET status='returned' WHERE id=?", sheetId);
@@ -570,6 +571,7 @@ export function completionStats(startISO, endISO) {
     "SELECT COUNT(*) AS total, " +
     "SUM(CASE WHEN si.result='correct' THEN 1 ELSE 0 END) AS correct, " +
     "SUM(CASE WHEN si.result='wrong' THEN 1 ELSE 0 END) AS wrong, " +
+    "SUM(CASE WHEN si.result='missed' THEN 1 ELSE 0 END) AS missed, " +
     "SUM(CASE WHEN si.result IS NULL THEN 1 ELSE 0 END) AS pending " +
     "FROM sheet_items si JOIN sheets s ON s.id=si.sheet_id " +
     "WHERE s.created_at>=? AND s.created_at<?",
@@ -578,9 +580,10 @@ export function completionStats(startISO, endISO) {
   const total = Number(r.total || 0);
   const correct = Number(r.correct || 0);
   const wrong = Number(r.wrong || 0);
+  const missed = Number(r.missed || 0);
   const pending = Number(r.pending || 0);
   const done = correct + wrong;
-  return { total, correct, wrong, pending, done, completion: total ? Math.round((done / total) * 100) : null };
+  return { total, correct, wrong, missed, pending, done, completion: total ? Math.round((done / total) * 100) : null };
 }
 
 /** 科目分布 */
