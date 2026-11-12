@@ -40,6 +40,7 @@
     "test:e2e": "node tools/e2e-mock.mjs",
     "test:math": "node tools/mathtest.mjs",
     "test:mobile": "node tools/mobilecheck.mjs",
+    "design": "node tools/designcheck.mjs",
     "test": "node tools/test-all.mjs",
     "test:all": "node tools/test-all.mjs"
   },

@@ -8,86 +8,100 @@
 <script defer src="/vendor/katex/katex.min.js"></script>
 <script defer src="/vendor/katex/contrib/auto-render.min.js"></script>
 <style>
-  /* 瑞士国际主义：直角、粗黑线、等宽数字、单一红强调色。打印友好。 */
+  /* 打印视图：屏幕上是"纸"，打印时是 A4 黑白。
+     与主站共用同一套颜色令牌，只用一处强调色（青）。 */
+  :root {
+    --ink: #1a1815;
+    --muted: #6b655c;
+    --line: #d8d2c6;
+    --accent: #0d6b62;
+    --paper: #ffffff;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+            "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 16px 14px 44px;
-    font: 12.5px/1.65 "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 18px 14px 48px;
+    font: 12.5px/1.65 var(--font);
     color: #000;
-    background: #d9d5cd;
-    font-feature-settings: "tnum" 1;
+    background: #e9e5dd;
+    font-feature-settings: "kern" 1;
   }
   .sheet {
     max-width: 200mm;
     margin: 0 auto 18px;
-    background: #fff;
-    padding: 16mm 14mm 14mm;
-    border-top: 3pt solid #000;
+    background: var(--paper);
+    padding: 15mm 13mm 13mm;
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(26, 24, 21, .12);
   }
-  h1 {
-    font-size: 22pt; font-weight: 700; letter-spacing: -.02em;
-    margin: 0 0 2px; line-height: 1.1;
-  }
+  h1 { font-size: 20pt; font-weight: 650; letter-spacing: -.015em; margin: 0 0 3px; line-height: 1.15; }
   .meta {
-    font: 8.5pt/1.4 "SF Mono", Menlo, Consolas, monospace;
-    letter-spacing: .12em; text-transform: uppercase; color: #555;
-    margin-bottom: 10px; padding-bottom: 8px;
-    border-bottom: 1px solid #000;
+    font: 8.5pt/1.5 var(--mono);
+    letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 11px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
   }
   .tip {
-    font-size: 9.5pt; color: #111; border: 1px solid #000;
-    padding: 7px 9px; margin-bottom: 12px; line-height: 1.65;
+    font-size: 9.5pt; line-height: 1.65; color: #2b2822;
+    background: #f5f2ea; border: 1px solid var(--line);
+    border-radius: 4px; padding: 8px 10px; margin-bottom: 14px;
   }
-  .day { margin-top: 14px; break-inside: avoid; }
+  .day { margin-top: 15px; break-inside: avoid; }
   .day > h2 {
-    font-size: 10.5pt; font-weight: 700; letter-spacing: .04em;
+    font-size: 10.5pt; font-weight: 650; letter-spacing: .02em;
     margin: 0 0 8px; padding-bottom: 3px;
-    border-bottom: 1.6pt solid #000;
+    border-bottom: 1px solid var(--line);
     display: flex; justify-content: space-between; align-items: baseline;
   }
-  .day > h2 .n { font-family: "SF Mono", Menlo, monospace; font-weight: 400; color: #555; }
-  .item { margin-bottom: 13px; break-inside: avoid; }
+  .day > h2 .n { font-family: var(--mono); font-weight: 400; color: var(--muted); }
+  .item { margin-bottom: 14px; break-inside: avoid; }
   .item .no {
-    font: 8.5pt/1 "SF Mono", Menlo, monospace; letter-spacing: .1em;
-    color: #000; margin-bottom: 3px;
+    font: 8.5pt/1 var(--mono); letter-spacing: .08em;
+    color: var(--muted); margin-bottom: 4px;
   }
-  .item .stem { font-size: 11pt; line-height: 1.75; }
-  .item .blank { height: 26px; border-bottom: 1px dotted #999; margin-top: 6px; }
+  .item .stem { font-size: 11pt; line-height: 1.8; }
+  .item .blank { height: 28px; border-bottom: 1px dotted #b3aca0; margin-top: 7px; }
   .item .blank.short { height: 22px; }
   .chk {
     display: inline-block; width: 12px; height: 12px;
-    border: 1.2px solid #000; vertical-align: -2px; margin-right: 4px;
+    border: 1.2px solid var(--ink); border-radius: 2px;
+    vertical-align: -2px; margin-right: 5px;
   }
-  .answers { page-break-before: always; border-top-color: #d92b1c; }
-  .answers h1 { color: #d92b1c; }
-  .answers .item .no { font-weight: 700; }
-  .ans { font-size: 10.5pt; line-height: 1.7; }
+  .answers { page-break-before: always; }
+  .answers h1 { color: var(--accent); }
+  .answers .meta { border-bottom-color: var(--accent); }
+  .answers .item .no { font-weight: 650; color: var(--accent); }
+  .ans { font-size: 10.5pt; line-height: 1.75; }
   .ans .k {
-    font: 8pt/1 "SF Mono", Menlo, monospace; letter-spacing: .1em;
-    text-transform: uppercase; color: #555; margin-right: 6px;
+    font: 8pt/1 var(--mono); letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); margin-right: 6px;
   }
   .katex { font-size: 1em; }
   .toolbar {
     position: sticky; top: 0; z-index: 9;
-    display: flex; gap: 0; justify-content: center;
-    padding: 8px; margin: -16px -14px 16px;
-    background: #f1efea; border-bottom: 2px solid #000;
+    display: flex; gap: 8px; justify-content: center;
+    padding: 10px; margin: -18px -14px 18px;
+    background: rgba(233, 229, 221, .95);
+    backdrop-filter: blur(8px);
   }
   .toolbar button {
-    font: 600 13px/1 "Helvetica Neue", Arial, "PingFang SC", sans-serif;
-    letter-spacing: .04em;
-    padding: 10px 20px; border: 1px solid #000; border-left-width: 0;
-    background: #fff; color: #000; border-radius: 0; cursor: pointer;
+    font: 550 13.5px/1 var(--font);
+    padding: 9px 18px; min-height: 38px;
+    border: 1px solid #c9c2b4; border-radius: 6px;
+    background: #fff; color: var(--ink); cursor: pointer;
   }
-  .toolbar button:first-child { border-left-width: 1px; }
-  .toolbar button.primary { background: #000; color: #fff; }
-  .toolbar button:hover { background: #d92b1c; border-color: #d92b1c; color: #fff; }
+  .toolbar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .toolbar button:hover { background: #f4f1ea; }
+  .toolbar button.primary:hover { background: #0a544d; }
   @media print {
     body { background: #fff; padding: 0; }
     .toolbar { display: none; }
-    .sheet { max-width: none; margin: 0; padding: 0; border-top: 0; }
-    @page { size: A4; margin: 14mm 12mm; }
+    .sheet { max-width: none; margin: 0; padding: 0; border-radius: 0; box-shadow: none; }
+    .tip { background: transparent; border: .6pt solid #999; }
+    @page { size: A4; margin: 13mm 12mm; }
   }
 </style>
 </head>

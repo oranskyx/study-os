@@ -118,7 +118,7 @@ function typeset(el) {
         { left: '\\(', right: '\\)', display: false },
       ],
       throwOnError: false,
-      errorColor: '#d92d20',
+      errorColor: '#a5331f',
       ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
     });
   } catch { /* 单条公式失败不影响正文 */ }
@@ -709,7 +709,7 @@ async function viewQuestion(id) {
 
 function panel(label, value, kind = '') {
   if (!value) return '';
-  return `<div class="hint ${kind}" style="background:#fafbfc;border-color:var(--line);color:var(--ink-2);margin-bottom:8px">
+  return `<div class="hint ${kind}" style="background:var(--subtle);border-color:var(--line);color:var(--ink-2);margin-bottom:8px">
     <div class="small" style="color:var(--muted);margin-bottom:3px">${label}</div>
     <div style="color:var(--ink)">${richBlock(value)}</div>
   </div>`;
