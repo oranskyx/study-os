@@ -6,6 +6,30 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** 按科目分组的考点下拉选项。subjectId 为空时列全部。 */
+function kpOptions(subjectId, selected = '') {
+  const list = (S.meta?.kps || []).filter((k) => !subjectId || k.subject_id === subjectId);
+  const byChapter = new Map();
+  for (const k of list) {
+    if (!byChapter.has(k.chapter)) byChapter.set(k.chapter, []);
+    byChapter.get(k.chapter).push(k);
+  }
+  const out = [];
+  if (selected && !list.some((k) => k.name === selected)) {
+    out.push(`<option value="${esc(selected)}" selected>${esc(selected)}（不在列表，保留）</option>`);
+  }
+  for (const [chapter, items] of byChapter) {
+    out.push(`<optgroup label="${esc(chapter)}">`);
+    for (const k of items) {
+      out.push(
+        `<option value="${esc(k.name)}" ${k.name === selected ? 'selected' : ''}>${esc(k.name)}</option>`
+      );
+    }
+    out.push('</optgroup>');
+  }
+  return out.join('');
+}
+
 /** 保留 $...$ / $$...$$ 数学片段，其余做 HTML 转义。
  *  这样 LaTeX 里的 < > 不会被吃掉，又不会引入标签注入。 */
 function mEsc(s) {
@@ -273,7 +297,6 @@ async function viewHome() {
 // ---------------------------------------------------------------- 视图：录入
 async function viewCapture() {
   const cap = S.cap;
-  const kps = S.meta?.kps || [];
   const h = [];
 
   h.push(`
@@ -300,6 +323,7 @@ async function viewCapture() {
             从相册选
             <input type="file" id="capFile" accept="image/*" hidden>
           </label>
+          <button class="btn" style="flex:1;margin:0" data-act="cap-manual">手动录入</button>
         </div>
       `}
       <p class="muted" style="margin:9px 0 0">
@@ -308,6 +332,35 @@ async function viewCapture() {
       </p>
     </div>
   `);
+
+  if (cap.manual) {
+    h.push(`
+      <div class="card">
+        <h2><span class="dot"></span>手动录入一道</h2>
+        <p class="muted" style="margin:0 0 10px">不打字也行：题目你已经在纸上做过，这里只记「值得重做」的那部分。</p>
+        <label class="field"><span>题干（LaTeX 用 $...$）</span>
+          <textarea id="mStem" rows="5" placeholder="已知 $f(x)=x^2-2x+3$，求最值。"></textarea></label>
+        <div class="row" style="gap:10px;flex-wrap:wrap">
+          <label class="field" style="flex:1;min-width:140px"><span>我的答案</span>
+            <textarea id="mMine" rows="2"></textarea></label>
+          <label class="field" style="flex:1;min-width:140px"><span>正确答案</span>
+            <textarea id="mRight" rows="2"></textarea></label>
+        </div>
+        <label class="field"><span>错因</span>
+          <textarea id="mCause" rows="2" placeholder="例如：配方时漏了常数项"></textarea></label>
+        <div class="row" style="gap:10px;flex-wrap:wrap">
+          <label class="field" style="flex:1;min-width:160px"><span>考点</span>
+            <select id="mKp"><option value="">（未标注）</option>${kpOptions(cap.subject)}</select></label>
+          <label class="field" style="flex:0 0 92px"><span>难度</span>
+            <select id="mDiff">${[1,2,3,4,5].map((n) => `<option value="${n}" ${n === 3 ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        </div>
+        <div class="row" style="gap:8px;margin-top:10px">
+          <button class="btn primary" data-act="cap-save-manual">存入错题库</button>
+          <button class="btn ghost" data-act="cap-manual-cancel">取消</button>
+        </div>
+      </div>
+    `);
+  }
 
   if (cap.error) {
     h.push(`<div class="hint err">${esc(cap.error)}</div>`);
@@ -367,12 +420,9 @@ function mountDraftPreview(root) {
 }
 
 function draftCard(d, i) {
-  const kps = S.meta?.kps || [];
   const conf = typeof d.confidence === 'number' ? Math.round(d.confidence * 100) : null;
   const confColor = conf == null ? 'var(--muted)' : conf >= 80 ? 'var(--ok)' : conf >= 55 ? 'var(--warn)' : 'var(--bad)';
-  const chapterOpts = kps
-    .map((k) => `<option value="${esc(k.name)}" ${k.name === d.kp_name ? 'selected' : ''}>${esc(k.chapter)} / ${esc(k.name)}</option>`)
-    .join('');
+  const chapterOpts = kpOptions(d.subject_id || S.cap.subject, d.kp_name);
 
   return `
     <div class="q" data-draft="${i}">
@@ -442,23 +492,36 @@ function draftCard(d, i) {
 
 // ---------------------------------------------------------------- 视图：错题库
 async function viewBank() {
-  const list = await api(`/api/questions?status=${encodeURIComponent(S.bank.status)}`);
+  const subj = S.bank.subject || 'all';
+  const query = `/api/questions?status=${encodeURIComponent(S.bank.status)}${subj !== 'all' ? `&subject=${encodeURIComponent(subj)}` : ''}`;
+  const list = await api(query);
   const filters = [
     ['all', '全部'],
     ['first', '头次错'],
     ['key', '重点错题'],
     ['archived', '已掌握'],
   ];
+  const subjects = [{ id: 'all', name: '全部科目' }].concat(S.meta?.subjects || []);
   const h = [`
-    <div class="row" style="margin-bottom:12px">
-      ${filters
-        .map(
-          ([k, label]) =>
-            `<button class="btn sm ${S.bank.status === k ? 'primary' : ''}" data-act="bank-filter" data-status="${k}">${label}</button>`
-        )
-        .join('')}
-      <span class="spacer" style="flex:1"></span>
-      <span class="muted">${list.length} 道</span>
+    <div class="bank-toolbar">
+      <div class="seg seg-subject">
+        ${subjects
+          .map(
+            (s) =>
+              `<button class="seg-btn ${subj === s.id ? 'on' : ''}" data-act="bank-subject" data-subject="${s.id}">${esc(s.name)}</button>`
+          )
+          .join('')}
+      </div>
+      <div class="seg seg-status">
+        ${filters
+          .map(
+            ([k, label]) =>
+              `<button class="seg-btn ${S.bank.status === k ? 'on' : ''}" data-act="bank-filter" data-status="${k}">${label}</button>`
+          )
+          .join('')}
+        <span class="spacer" style="flex:1"></span>
+        <span class="count">${list.length}</span>
+      </div>
     </div>
   `];
 
@@ -467,6 +530,7 @@ async function viewBank() {
     return h.join('');
   }
 
+  h.push('<div class="bank-scroll">');
   h.push(
     list
       .map((q) => {
@@ -492,8 +556,47 @@ async function viewBank() {
       })
       .join('')
   );
+  h.push('</div>');
 
   return h.join('');
+}
+
+
+/** 单题全字段编辑表单（改题干/答案/错因/解析/科目/难度都要能改） */
+const ERROR_TYPES = ['概念不清', '计算失误', '审题偏差', '方法缺失', '记忆不牢', '表达不规范'];
+
+function editQuestionForm(q) {
+  const sel = (name, opts, cur) =>
+    '<select data-qf="' + name + '">' +
+    opts.map(([v, label]) => '<option value="' + esc(v) + '"' + (String(v) === String(cur ?? '') ? ' selected' : '') + '>' + esc(label) + '</option>').join('') +
+    '</select>';
+  return `
+    <div class="edit-form">
+      <label class="field"><span>题干（LaTeX 用 $...$）</span>
+        <textarea data-qf="stem" rows="6">${esc(q.stem || '')}</textarea></label>
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <label class="field" style="flex:1;min-width:140px"><span>我的答案</span>
+          <textarea data-qf="my_answer" rows="2">${esc(q.my_answer || '')}</textarea></label>
+        <label class="field" style="flex:1;min-width:140px"><span>正确答案</span>
+          <textarea data-qf="correct_answer" rows="2">${esc(q.correct_answer || '')}</textarea></label>
+      </div>
+      <label class="field"><span>错因（我写的）</span>
+        <textarea data-qf="error_cause" rows="2">${esc(q.error_cause || '')}</textarea></label>
+      <label class="field"><span>解析</span>
+        <textarea data-qf="solution" rows="5">${esc(q.solution || '')}</textarea></label>
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <label class="field" style="flex:1;min-width:120px"><span>科目</span>
+          ${sel('subject_id', (S.meta?.subjects || []).map((x) => [x.id, x.name]), q.subject_id)}</label>
+        <label class="field" style="flex:1;min-width:120px"><span>错因类型</span>
+          ${sel('error_type', [['', '（未分类）']].concat(ERROR_TYPES.map((t) => [t, t])), q.error_type)}</label>
+        <label class="field" style="flex:1;min-width:100px"><span>难度</span>
+          ${sel('difficulty', [1,2,3,4,5].map((n) => [n, String(n)]), q.difficulty)}</label>
+      </div>
+      <div class="row" style="gap:8px;margin-top:10px">
+        <button class="btn primary" data-act="save-q" data-id="${q.id}">保存修改</button>
+        <button class="btn ghost" data-act="edit-q" data-id="${q.id}">取消</button>
+      </div>
+    </div>`;
 }
 
 // ---------------------------------------------------------------- 视图：单题
@@ -527,25 +630,30 @@ async function viewQuestion(id) {
         <span>考点（改完立刻生效，趋势分析和薄弱点排行都靠它）</span>
         <select data-act="setKp" data-id="${q.id}">
           <option value="">（未标注）</option>
-          ${(S.meta?.kps || [])
-            .map(
-              (k) =>
-                `<option value="${esc(k.name)}" ${k.name === q.kp_name ? 'selected' : ''}>${esc(k.chapter)} / ${esc(k.name)}</option>`
-            )
-            .join('')}
+          ${kpOptions(q.subject_id, q.kp_name)}
         </select>
       </label>
-      <div class="row" style="gap:8px;margin-bottom:12px">
+      <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <button class="btn ok sm" data-act="mark" data-id="${q.id}" data-r="correct">这次做对了</button>
         <button class="btn bad sm" data-act="mark" data-id="${q.id}" data-r="wrong">又错了</button>
         <button class="btn sm" data-act="diagnose" data-id="${q.id}">AI 深挖错因</button>
         <button class="btn sm" data-act="variants" data-id="${q.id}">出变式题</button>
+        <button class="btn sm ghost" data-act="edit-q" data-id="${q.id}">${S.editQ === q.id ? '收起编辑' : '编辑'}</button>
       </div>
+      ${S.editQ === q.id ? editQuestionForm(q) : `
       ${panel('我的答案', q.my_answer)}
       ${panel('正确答案', q.correct_answer)}
       ${panel('错因（我写的）', q.error_cause)}
       ${panel('AI 归因', q.error_cause_ai, 'info')}
-      ${panel('解析', q.solution)}
+      <div class="field">
+        <span>解析</span>
+        ${q.solution
+          ? `<div class="pv on">${richBlock(q.solution)}</div>`
+          : `<p class="muted" style="margin:0 0 8px">还没有解析。解析不自动生成——题目太难、你也不需要，点按钮才花钱。</p>`}
+        <button class="btn sm" data-act="solution" data-id="${q.id}">
+          ${q.solution ? '重新生成解析' : '生成解析（花 token）'}
+        </button>
+      </div>`}
       <p class="muted" style="margin:10px 0 0;font-size:12px">
         首错 ${fmtTime(q.first_error_at)} · 最近错 ${fmtTime(q.last_error_at)} ·
         复习 ${q.review_count || 0} 次 · 连对 ${q.correct_streak || 0} 次<br>
@@ -1041,6 +1149,11 @@ document.addEventListener('click', async (e) => {
       return render();
     }
 
+    if (act === 'bank-subject') {
+      S.bank.subject = el.dataset.subject;
+      return render();
+    }
+
     if (act === 'q-open') return go(`q/${el.dataset.id}`);
 
     if (act === 'mark') {
@@ -1057,6 +1170,82 @@ document.addEventListener('click', async (e) => {
           : `已记录 · 下次复习 ${fmtDay(q.next_review_at)}`,
         'ok'
       );
+      return render();
+    }
+
+    if (act === 'cap-manual') {
+      S.cap.manual = true;
+      return render();
+    }
+
+    if (act === 'cap-manual-cancel') {
+      S.cap.manual = false;
+      return render();
+    }
+
+    if (act === 'cap-save-manual') {
+      const stem = $('#mStem')?.value.trim();
+      if (!stem) return toast('题干不能为空', 'warn');
+      el.disabled = true;
+      try {
+        await api('/api/questions/bulk', {
+          method: 'POST',
+          body: {
+            questions: [{
+              subject_id: S.cap.subject,
+              stem,
+              my_answer: $('#mMine')?.value.trim() || null,
+              correct_answer: $('#mRight')?.value.trim() || null,
+              error_cause: $('#mCause')?.value.trim() || null,
+              kp_name: $('#mKp')?.value || null,
+              difficulty: Number($('#mDiff')?.value) || 3,
+            }],
+          },
+        });
+        S.cap.manual = false;
+        S.meta = null;
+        toast('已存入错题库', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+        el.disabled = false;
+      }
+      return render();
+    }
+
+    if (act === 'solution') {
+      el.disabled = true;
+      el.innerHTML = '<span class="spin dark"></span> 生成中（约 20 秒）';
+      try {
+        await api(`/api/questions/${el.dataset.id}/solution`, { method: 'POST' });
+        toast('解析已生成', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      }
+      return render();
+    }
+
+    if (act === 'edit-q') {
+      const id = Number(el.dataset.id);
+      S.editQ = S.editQ === id ? null : id;
+      return render();
+    }
+
+    if (act === 'save-q') {
+      const id = Number(el.dataset.id);
+      const body = {};
+      for (const f of document.querySelectorAll('[data-qf]')) {
+        const k = f.dataset.qf;
+        body[k] = k === 'difficulty' ? Number(f.value) : f.value;
+      }
+      el.disabled = true;
+      try {
+        await api(`/api/questions/${id}`, { method: 'PATCH', body });
+        S.editQ = null;
+        toast('已保存', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+        el.disabled = false;
+      }
       return render();
     }
 
@@ -1241,9 +1430,14 @@ document.addEventListener('change', async (e) => {
 
   if (t.id === 'capFile' || t.id === 'capCam') {
     const file = t.files?.[0];
-    t.value = '';   // 清空，允许再选同一张
     if (!file) return;
-    return pickPhoto(file);
+    // 注意：必须等图片读完再清空 input。
+    // 有些手机浏览器（iOS Safari 尤其）一旦清空 input，之前拿到的 File 就读不出来了。
+    try {
+      return await pickPhoto(file);
+    } finally {
+      t.value = '';
+    }
   }
 
   if (t.dataset?.dk === 'keep') {
@@ -1396,7 +1590,7 @@ function openImageEditor(file) {
 
     /** 按容器大小算缩放，画到可见 canvas 上 */
     function layout() {
-      const maxW = Math.max(160, stage.clientWidth - 8);
+      const maxW = Math.max(160, stage.clientWidth - 40);   // 两侧留 16px 手指空间
       const maxH = Math.max(160, Math.min(window.innerHeight * 0.58, 520));
       scale = Math.min(maxW / work.width, maxH / work.height, 1);
       const dw = Math.max(1, Math.round(work.width * scale));
@@ -1412,10 +1606,16 @@ function openImageEditor(file) {
     }
 
     function drawCrop() {
-      cropEl.style.left = `${Math.round(crop.x * scale)}px`;
-      cropEl.style.top = `${Math.round(crop.y * scale)}px`;
-      cropEl.style.width = `${Math.round(crop.w * scale)}px`;
-      cropEl.style.height = `${Math.round(crop.h * scale)}px`;
+      // 关键：以图片实际显示的位置为准，而不是按 scale 硬算。
+      // 舞台是 flex 居中、还可能被 CSS max-width 缩过，用 scale 算会整体偏移。
+      const r = view.getBoundingClientRect();
+      const s = stage.getBoundingClientRect();
+      const sx = r.width / work.width;
+      const sy = r.height / work.height;
+      cropEl.style.left = `${Math.round(r.left - s.left + crop.x * sx)}px`;
+      cropEl.style.top = `${Math.round(r.top - s.top + crop.y * sy)}px`;
+      cropEl.style.width = `${Math.round(crop.w * sx)}px`;
+      cropEl.style.height = `${Math.round(crop.h * sy)}px`;
       sizeEl.textContent = `裁切 ${Math.round(crop.w)}×${Math.round(crop.h)}（原图 ${bitmap.width}×${bitmap.height}）`;
     }
 
@@ -1427,6 +1627,12 @@ function openImageEditor(file) {
         y: ((ev.clientY - r.top) / r.height) * work.height,
       };
     };
+
+    /** 裁切框最小尺寸：按屏幕像素算，保证手指还抓得住 */
+    function minWorkSize() {
+      const r = view.getBoundingClientRect();
+      return Math.max(32, (72 / Math.max(1, r.width)) * work.width);
+    }
 
     function onMove(ev) {
       if (!drag) return;
@@ -1453,7 +1659,7 @@ function openImageEditor(file) {
         crop = clampRect({
           x: Math.min(x1, x2), y: Math.min(y1, y2),
           w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
-        }, work.width, work.height);
+        }, work.width, work.height, minWorkSize());
       }
       drawCrop();
     }
@@ -1461,7 +1667,7 @@ function openImageEditor(file) {
     function onUp() {
       if (!drag) return;
       drag = null;
-      crop = clampRect(crop, work.width, work.height);
+      crop = clampRect(crop, work.width, work.height, minWorkSize());
       drawCrop();
     }
 
@@ -1475,8 +1681,10 @@ function openImageEditor(file) {
       try { cropEl.setPointerCapture?.(ev.pointerId); } catch { /* 合成事件没有真实指针，忽略 */ }
     });
 
+    // 图片四周留出的空白也算数：手指从框外按下去就开始画新框，
+    // 不用非得精确戳在图片上（手机屏幕小、手指粗，差几像素很正常）。
     stage.addEventListener('pointerdown', (ev) => {
-      if (ev.target !== view) return;   // 点在裁切框上交给上面处理
+      if (cropEl.contains(ev.target)) return;   // 点在裁切框上交给上面处理
       ev.preventDefault();
       const p = toWork(ev);
       drag = { mode: 'new', start: p };

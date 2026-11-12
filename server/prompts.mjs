@@ -22,7 +22,13 @@ export function extractMessages({ imageDataUrl, subjectId, kpList, extraNote = '
 3. 手写内容识别不确定时，在对应字段里如实照抄你看到的字，并把 confidence 调低。
 4. 公式一律用 LaTeX：行内用 $...$，独立成行用 $$...$$。分数用 \\frac{}{}，根号用 \\sqrt{}。
 5. 图片、几何图、坐标系无法转成文字时，用占位符 [图] 标注它出现在题干哪个位置。
-6. 一页可能有 1-6 道题。务必逐道分开，不要合并，也不要把一道题拆成两道。`;
+6. 一页可能有 1-6 道题。务必逐道分开，不要合并，也不要把一道题拆成两道。
+7. 页面可能是「错题本格式」：分栏写着 题干 / 我的答案 / 正确答案 / 解析 / 错因。
+   按语义把内容放进对应字段；没有分栏时，题号后的长段落是题干，算式或短句是作答。
+8. 错因可以推断：页面上没写错因时，根据题干、学生作答和正确答案判断他错在哪，
+   写进 error_cause，并把 error_cause_source 设为 "inferred"；页面上有原文就照抄，设 "page"。
+9. 解析绝不生成：solution 只在页面上真的有解析时才填，否则一律 null。
+   学生不想为「替你解题」付钱，解析由他自己点按钮按需生成。`;
 
   const user = `请识别这一页错题本。
 
@@ -40,7 +46,8 @@ ${extraNote ? `学生补充说明：${extraNote}\n` : ''}
       "my_answer": "页面上学生自己写的作答/思路，没有就 null",
       "correct_answer": "页面上写的正确答案，没有就 null",
       "solution": "页面上写的解析过程，没有就 null",
-      "error_cause": "页面上学生写的错因原文，没有就 null",
+      "error_cause": "页面上写的错因原文；页面上没有就根据作答推断一条（见铁律 8），没有把握就 null",
+      "error_cause_source": "page 或 inferred",
       "error_type": "从这六个里选一个：${ERROR_TYPES.join('、')}；判断不了填 null",
       "difficulty": 1,
       "kp": ["考点名"],
@@ -236,6 +243,38 @@ ${digest}
   "top_weak_kps": [{"kp": "考点名", "evidence": "凭据", "action": "下周动作"}],
   "method_updates": [{"title": "方法论条目标题", "body": "可直接抄进方法论本子的内容"}]
 }`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+// ---------------------------------------------------------------- 按需生成解析
+/**
+ * 只有学生自己点「生成解析」时才调这个。
+ * 识题阶段一律不生成解析：一道题的完整解法动辄上千 token，
+ * 而大部分题他只需要错因，不需要别人替他重做一遍。
+ */
+export function solutionMessages({ question }) {
+  const subj = SUBJECT_NAME[question.subject_id] || '数学';
+  const system = `你是经验丰富的${subj}老师，面对一名高一学生。
+他要的是这道错题的**完整解题过程**，不是答案复述。
+
+要求：
+1. 从「思路」写起：这题在考什么、突破口在哪。
+2. 关键步骤写清依据（用了哪个公式、定理、性质）。
+3. 用 Markdown。公式用 LaTeX：行内 $...$，独立成行 $$...$$。
+4. 不要复述题干，不要客套话，不要"希望能帮到你"。
+5. 题目信息不全（缺图、缺条件、缺选项）时，直接说明缺什么、能推到哪一步，不要硬编。`;
+
+  const user = [
+    `题干：\n${question.stem || '（空）'}`,
+    question.my_answer ? `\n学生写的答案：${question.my_answer}` : '',
+    question.correct_answer ? `\n正确答案：${question.correct_answer}` : '',
+    question.error_cause ? `\n错误原因：${question.error_cause}` : '',
+    '\n请写解析。',
+  ].filter(Boolean).join('\n');
 
   return [
     { role: 'system', content: system },

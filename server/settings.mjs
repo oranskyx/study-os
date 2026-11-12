@@ -4,6 +4,7 @@
 import { get, run } from './db.mjs';
 
 const DEFAULTS = {
+  effort: 'high',
   baseUrl: 'https://api.deepseek.com',
   visionModel: 'deepseek-flash',
   textModel: 'deepseek-flash',
@@ -12,6 +13,7 @@ const DEFAULTS = {
 const KEYS = [
   'vision_base_url', 'vision_api_key', 'vision_model',
   'text_base_url', 'text_api_key', 'text_model',
+  'text_effort', 'vision_effort',
 ];
 
 const trimSlash = (s) => String(s || '').replace(/\/+$/, '');
@@ -50,6 +52,7 @@ export function resolveConfig(kind = 'text') {
       baseUrl: trimSlash(vBase),
       apiKey: vKey,
       model: vModel,
+      effort: getSetting('vision_effort') || env('VISION_EFFORT') || DEFAULTS.effort,
       source: {
         baseUrl: getSetting('vision_base_url') ? 'ui' : env('VISION_BASE_URL') ? 'env' : 'default',
         apiKey: getSetting('vision_api_key') ? 'ui' : vKey ? 'env' : 'none',
@@ -70,6 +73,7 @@ export function resolveConfig(kind = 'text') {
     baseUrl: base,
     apiKey: tKey,
     model: tModel,
+    effort: getSetting('text_effort') || env('TEXT_EFFORT') || DEFAULTS.effort,
     source: {
       baseUrl: getSetting('text_base_url') ? 'ui' : env('TEXT_BASE_URL') ? 'env' : inheritKey ? 'inherit' : 'default',
       apiKey: getSetting('text_api_key') ? 'ui' : env('TEXT_API_KEY') ? 'env' : inheritKey && vKey ? 'inherit' : 'none',

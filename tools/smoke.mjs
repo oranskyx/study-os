@@ -150,8 +150,31 @@ console.log('\n=== 3. 归档规则（30 天不再错）===');
   createdIds.push(oldId);
   const run = await call('/api/maintenance/run', { method: 'POST', body: {} });
   ok('POST /maintenance/run', run.status === 200, `归档 ${run.data.archived} 道，升级 ${run.data.promoted} 道，重排 ${run.data.rescheduled} 道`);
-  const q = await call(`/api/questions/${oldId}`);
-  ok('40 天未错的题被归档', q.data.question.status === 'archived', `status=${q.data.question.status}`);
+
+  // 关键：只是"30 天没再错"不等于"掌握了"。
+  // 一道题可能压根没排进复习单（一周只装 20 道），从没重做过也会被算成已掌握。
+  const never = await call(`/api/questions/${oldId}`);
+  ok('40 天没再错、但从没复习过的题【不】自动归档',
+    never.data.question.status !== 'archived',
+    `status=${never.data.question.status}（重新做 ${never.data.question.review_count} 次）`);
+
+  // 真复习过的题才该归档：造一道"复习过 3 次、连对 2 次、40 天前错过"的题
+  // （bulk 只负责建题，复习历史要用 PATCH 补上，跟真实使用路径一致）
+  const done = await call('/api/questions/bulk', {
+    method: 'POST',
+    body: { questions: [{ stem: '旧题（已复习）：$2+2=?$', correct_answer: '4', kp_name: '集合的概念与表示' }] },
+  });
+  const doneId = done.data.ids[0];
+  createdIds.push(doneId);
+  await call(`/api/questions/${doneId}`, {
+    method: 'PATCH',
+    body: { review_count: 3, correct_streak: 2, last_error_at: daysAgo(40), first_error_at: daysAgo(40) },
+  });
+  await call('/api/maintenance/run', { method: 'POST', body: {} });
+  const q = await call(`/api/questions/${doneId}`);
+  ok('复习过且连对的题，40 天未错后归档',
+    q.data.question.status === 'archived',
+    `status=${q.data.question.status} 复习 ${q.data.question.review_count} 次`);
   ok('归档原因已记录', Boolean(q.data.question.archive_reason), q.data.question.archive_reason);
 }
 

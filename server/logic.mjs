@@ -6,6 +6,9 @@
 import { all, get, run, nowISO } from './db.mjs';
 
 const ARCHIVE_AFTER_DAYS = Number(process.env.ARCHIVE_AFTER_DAYS || 30);
+// 归档前至少要真的重做过几次、连对几次，避免「从没排进复习单」的题被误判为已掌握
+const ARCHIVE_MIN_REVIEWS = Number(process.env.ARCHIVE_MIN_REVIEWS || 2);
+const ARCHIVE_MIN_STREAK = Number(process.env.ARCHIVE_MIN_STREAK || 1);
 const SHEET_PER_DAY = Math.min(8, Math.max(1, Number(process.env.SHEET_PER_DAY || 4)));
 
 // ---------------------------------------------------------------- 日期
@@ -99,18 +102,26 @@ export function refreshSchedules() {
   return n;
 }
 
-/** 30 天没再错 → 归档为已掌握。二次错 → 升级为重点错题。 */
+/** 30 天没再错 → 归档为已掌握。二次错 → 升级为重点错题。
+ *
+ *  重要：光"30 天没再错"不等于"掌握了"——
+ *  一道题可能压根没排进复习单（一周只装 20 道），从没重做过也被算成已掌握。
+ *  所以必须同时满足：至少重做过 ARCHIVE_MIN_REVIEWS 次，且连对 ARCHIVE_MIN_STREAK 次。 */
 export function applyStatusRules(now = new Date()) {
   const archived = run(
     `UPDATE questions
         SET status='archived', archived_at=?, archive_reason=?
       WHERE status != 'archived'
         AND deleted_at IS NULL
-        AND julianday(?) - julianday(last_error_at) > ?`,
+        AND julianday(?) - julianday(last_error_at) > ?
+        AND review_count >= ?
+        AND correct_streak >= ?`,
     now.toISOString(),
-    `${ARCHIVE_AFTER_DAYS} 天内未再出错，视为已掌握`,
+    `${ARCHIVE_AFTER_DAYS} 天内未再出错，且已重做通过`,
     now.toISOString(),
-    ARCHIVE_AFTER_DAYS
+    ARCHIVE_AFTER_DAYS,
+    ARCHIVE_MIN_REVIEWS,
+    ARCHIVE_MIN_STREAK
   ).changes;
 
   const promoted = run(
@@ -508,4 +519,4 @@ export function monthDigest(monthKey, limit = 40) {
     .join('\n\n');
 }
 
-export const CONFIG = { ARCHIVE_AFTER_DAYS, SHEET_PER_DAY };
+export const CONFIG = { ARCHIVE_AFTER_DAYS, SHEET_PER_DAY, ARCHIVE_MIN_REVIEWS, ARCHIVE_MIN_STREAK };

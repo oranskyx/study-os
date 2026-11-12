@@ -137,16 +137,16 @@ const keyFilter = window.document.querySelector('[data-act="bank-filter"][data-s
 check('筛选按钮存在', Boolean(keyFilter));
 if (keyFilter) {
   keyFilter.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  await waitFor(() => window.document.querySelector('[data-act="bank-filter"][data-status="key"].primary'));
+  await waitFor(() => window.document.querySelector('[data-act="bank-filter"][data-status="key"].on'));
   check('点「重点错题」筛选后按钮高亮',
-    Boolean(window.document.querySelector('[data-act="bank-filter"][data-status="key"].primary')));
+    Boolean(window.document.querySelector('[data-act="bank-filter"][data-status="key"].on')));
 
   // 复位筛选，否则下一步找不到刚造的「头次错」题
   const allFilter = window.document.querySelector('[data-act="bank-filter"][data-status="all"]');
   if (allFilter) {
     allFilter.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     await waitFor(() => window.document.querySelector(`[data-act="q-open"][data-id="${tmpIds[0]}"]`));
-    check('点「全部」筛选后能复位', Boolean(window.document.querySelector('[data-act="bank-filter"][data-status="all"].primary')));
+    check('点「全部」筛选后能复位', Boolean(window.document.querySelector('[data-act="bank-filter"][data-status="all"].on')));
   }
 }
 
