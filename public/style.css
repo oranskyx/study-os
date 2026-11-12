@@ -9,42 +9,44 @@
    ============================================================ */
 
 :root {
-  /* 画布与层次：暖中性，避免冷灰发蓝 */
-  --bg: #fbfaf7;
+  /* 暖纸 + 墨黑：主体层次只靠这三档 */
+  --bg: #faf9f5;
   --card: #ffffff;
-  --subtle: #f4f1ea;
+  --subtle: #f2f0e8;
 
-  /* 文字 */
-  --ink: #1a1815;
-  --ink-2: #423e37;
-  --muted: #6b655c;
+  /* 文字：Claude 的三级墨色 */
+  --ink: #141413;
+  --ink-2: #3d3d3a;
+  --muted: #6e6e66;
 
-  /* 线 */
-  --line: #e5e0d6;
-  --line-strong: #cfc8bb;
+  /* 线：一根发丝线就够，不做黑框 */
+  --line: #e6e3da;
+  --line-strong: #d6d2c6;
 
-  /* 唯一强调色（青） */
-  --accent: #0d6b62;
-  --accent-ink: #0a544d;
-  --accent-soft: #e4f1ee;
+  /* 唯一有彩色：赭（Claude 的 #D97757 压深一档，用于链接与小标记） */
+  --accent: #c96442;
+  --accent-ink: #a04a2e;
+  --accent-soft: #f6ece7;
 
-  /* 语义色（只用在小面积标记） */
-  --ok: #17703f;
-  --ok-soft: #e7f2eb;
-  --warn: #87550a;
-  --warn-soft: #f8efdd;
-  --bad: #a5331f;
-  --bad-soft: #f9e8e4;
+  /* 语义色：只出现在对错标记上，不做主题色 */
+  --ok: #3f6b4e;
+  --ok-soft: #eef3ee;
+  --warn: #8a5a2b;
+  --warn-soft: #f7efe4;
+  --bad: #a33c2e;
+  --bad-soft: #f8eae7;
 
-  /* 形状 */
-  --r-sm: 6px;
-  --r: 10px;
-  --r-lg: 14px;
-  --shadow-1: 0 1px 2px rgba(26, 24, 21, .05);
-  --shadow-2: 0 12px 32px rgba(26, 24, 21, .16);
+  /* 形状：4 / 6 / 8 —— 卡片不飘起来 */
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 8px;
+  --shadow-1: none;
+  --shadow-2: 0 8px 24px rgba(20, 20, 19, .12);
 
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
           "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC", sans-serif;
+  /* 标题用衬线：这是 Claude 那种"编辑部"味的主要来源，只用在标题上 */
+  --font-serif: Georgia, "Times New Roman", "Songti SC", "Noto Serif SC", "SimSun", serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --safe-b: env(safe-area-inset-bottom, 0px);
 }
@@ -82,9 +84,11 @@ header.top {
   padding: 20px 0 12px;
 }
 header.top h1 {
-  font-size: 19px;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 600;
   margin: 0;
-  letter-spacing: -.02em;
+  letter-spacing: 0;
 }
 header.top .sub {
   font-size: 12.5px;
@@ -124,8 +128,8 @@ nav.tabbar button:hover { color: var(--ink); background: rgba(255, 255, 255, .6)
 nav.tabbar button.on {
   background: var(--card);
   color: var(--ink);
-  font-weight: 650;
-  box-shadow: var(--shadow-1);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--line);
 }
 
 /* ---------------------------------------------------------- 卡片 */
@@ -151,7 +155,7 @@ nav.tabbar button.on {
 }
 
 .muted { color: var(--muted); font-size: 13px; }
-.small { font-size: 13px; color: var(--ink-2); }
+.small { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------- 统计格 */
 .stats {
@@ -191,7 +195,7 @@ nav.tabbar button.on {
   background: var(--card);
   color: var(--ink);
   font-size: 14px;
-  font-weight: 550;
+  font-weight: 500;
   padding: 9px 15px;
   min-height: 38px;
   border-radius: var(--r-sm);
@@ -203,12 +207,12 @@ nav.tabbar button.on {
 .btn:active { transform: translateY(.5px); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--ink);
+  border-color: var(--ink);
   color: #fff;
-  font-weight: 600;
+  font-weight: 500;
 }
-.btn.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+.btn.primary:hover { background: #2c2c29; border-color: #2c2c29; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { background: var(--subtle); color: var(--ink); }
 .btn.ok { color: var(--ok); border-color: #bcdcc8; background: var(--ok-soft); }
@@ -252,9 +256,9 @@ textarea { min-height: 68px; line-height: 1.65; }
 .badge {
   display: inline-block;
   font-size: 12px;
-  font-weight: 550;
-  padding: 2px 9px;
-  border-radius: 999px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
   background: var(--subtle);
   color: var(--ink-2);
   line-height: 1.7;
@@ -262,7 +266,7 @@ textarea { min-height: 68px; line-height: 1.65; }
 }
 .badge.first { background: var(--accent-soft); color: var(--accent-ink); }
 .badge.key { background: var(--warn-soft); color: var(--warn); }
-.badge.archived { background: var(--ok-soft); color: var(--ok); }
+.badge.archived { background: var(--subtle); color: var(--muted); }
 .badge.d { background: var(--subtle); color: var(--muted); }
 
 /* ---------------------------------------------------------- 错题卡片 */
@@ -347,12 +351,12 @@ textarea { min-height: 68px; line-height: 1.65; }
   gap: 8px;
 }
 .day-group > h3 .pill {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  background: var(--subtle);
+  color: var(--ink-2);
   font-size: 12px;
-  font-weight: 550;
-  padding: 1px 8px;
-  border-radius: 999px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
 }
 .slot {
   display: flex;
@@ -372,10 +376,10 @@ textarea { min-height: 68px; line-height: 1.65; }
   display: flex; align-items: center; justify-content: center;
   font-variant-numeric: tabular-nums;
 }
-.slot .body { flex: 1; min-width: 0; }
+.slot .body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .slot .marks { display: flex; gap: 6px; flex: none; }
 .slot .marks button {
-  width: 40px; height: 40px;
+  width: 44px; height: 44px;
   border-radius: var(--r-sm);
   border: 1px solid var(--line-strong);
   background: var(--card);
@@ -515,17 +519,17 @@ textarea { min-height: 68px; line-height: 1.65; }
   background: var(--card);
   color: var(--ink-2);
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 500;
   padding: 7px 12px;
   min-height: 36px;
-  border-radius: 999px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   transition: background .12s ease, color .12s ease, border-color .12s ease;
 }
 .seg-btn:hover { border-color: var(--line-strong); background: var(--subtle); }
 .seg-btn.on {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--ink);
+  border-color: var(--ink);
   color: #fff;
 }
 .seg-status { align-items: center; }
@@ -587,7 +591,7 @@ textarea { min-height: 68px; line-height: 1.65; }
     padding: 6px 3px;
     border-radius: var(--r-sm);
   }
-  nav.tabbar button.on { background: var(--accent-soft); color: var(--accent-ink); box-shadow: none; }
+  nav.tabbar button.on { background: var(--card); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
 
   /* iOS 聚焦不缩放：控件字号必须 ≥16px */
   input:not([type=checkbox]):not([type=radio]), textarea, select { font-size: 16px; }

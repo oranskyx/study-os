@@ -113,6 +113,16 @@ const METRICS = `(() => {
     if (s.boxShadow && s.boxShadow !== 'none') shadows++;
     if ((s.position === 'sticky' || s.position === 'fixed') && el.tagName !== 'BODY') sticky.push({ tag: el.tagName, cls: el.className && String(el.className).slice(0, 30) });
   }
+  const over = [];
+  for (const el of document.querySelectorAll('body *')) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    const s = getComputedStyle(el);
+    const clips = ['auto', 'hidden', 'scroll', 'clip'].includes(s.overflowX);
+    if (!clips && (r.right > innerWidth + 1 || el.scrollWidth > el.clientWidth + 1)) {
+      over.push({ tag: el.tagName, cls: String(el.className || '').slice(0, 28), left: Math.round(r.left), right: Math.round(r.right), w: Math.round(r.width), sw: el.scrollWidth, text: (el.textContent || '').trim().slice(0, 20) });
+    }
+  }
   const root = getComputedStyle(document.documentElement);
   const vars = {};
   for (const k of ['--bg', '--card', '--ink', '--ink-2', '--muted', '--line', '--accent', '--r']) vars[k] = root.getPropertyValue(k).trim();
@@ -124,6 +134,7 @@ const METRICS = `(() => {
     view: (document.getElementById('main') || {}).dataset ? document.getElementById('main').dataset.view : null,
     viewport: { w: innerWidth, h: innerHeight },
     overflowX: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    overflowers: over.slice(0, 8),
     docHeight: document.documentElement.scrollHeight,
     fonts, textCount: sizes.length,
     minText: sizes.length ? Math.min(...sizes) : null,
