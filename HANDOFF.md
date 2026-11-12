@@ -513,3 +513,56 @@ D:\oransky\Desktop\oransky\dsh\study-os
 - 本机网络：GitHub 走 Watt Toolkit（SteamTools）的本机 MITM，TCP 代理 127.0.0.1:7890 是**关的**，
   所以仓库本地配置了 `http.proxy=""`；git 用 schannel 认系统根证书，能直接推。
   若哪天推送报 502，多半是 Watt Toolkit 那条线路在抽风，重试或换加速节点。
+
+---
+
+## 17. 下一轮优先级（来自「无上下文模拟学生」的评估）
+
+用一个完全不知道项目背景的子智能体扮演目标用户（高一、在校无设备、周末批处理），
+先自己想清楚学习循环需要什么，再对照代码找缺口。结论按「不做就没法用」排序：
+
+### P1（系统当前会"说谎"或闭环断了）
+
+1. **归档可能误判**（已在本轮修掉一半）
+   `applyStatusRules` 现在要求 `review_count>=2 && correct_streak>=1` 才归档。
+   但仍需要：首页把「逾期但从没复习过」的题单列出来，否则用户不知道有题在排队排不上。
+   位置：`server/logic.mjs:105`、`GET /api/meta` 的 counts。
+2. **回收只能一道一道点**（20 道 = 40 次点击）
+   `POST /api/sheet/:id/fill` 建议支持 `{ default:'correct', overrides:{qid:'wrong'} }`，
+   前端加「全部算做对，我只改做错的」；`sheet_items.result` 增加 `missed` 表示"没做"。
+   位置：`server/logic.mjs:256 fillSheet`、`public/app.js` 的 `viewSheet`。
+3. **周报只有正确率，没有完成率**
+   排 20 道做了 5 道，报"正确率 80%"，等于夸用户没做。
+   `weeklyStats` 增加 planned/done/missed/completion；完成率 <50% 时红字提示。
+   位置：`server/logic.mjs:278`、`viewReport`。
+4. **同类错题不能聚成一堆看**
+   考点树这轮补齐了（六科 129 条），但错题库只能按科目/状态筛。
+   建议：`GET /api/questions/group?by=kp&subject=`；`#/bank` 加「按考点」切换；
+   周报里「错得最多的考点」做成可点的链接。
+
+### P2
+
+5. **考试范围抽题**：新表 `exams(id,subject_id,name,date,kp_scope)`，
+   `POST /api/exam/build` 复用 `buildSheet` 的分配逻辑，只换候选集（范围内 + 非 archived + 错得多优先）。
+   这是"考前突击"唯一能帮上忙的功能。
+6. **变式题不能判对错**：`variants.verdict` 列和 `PATCH /api/variants/:id` 都已存在，
+   前端一次都没调用——README 说的"人工审核"在界面上不存在。
+7. **归档是单向门**：`#/q/:id` 点「又错了」其实会打回 first，但没有入口提示；
+   建议加「重新激活」按钮，并在 bulk 入库时做 stem 相似度查重。
+8. **核对页字段太多**：20 道 × 6 字段 = 一百多个检查点。
+   置信度 ≥85% 的字段默认折叠成只读一行 +「改」，只展开低置信的。
+9. **方法论没有前端**：`methods` 表 + `/api/methods` 都在，`public/app.js` 零引用。
+   `#/methods` 视图（或周报底部常驻卡）是"沉淀"阶段唯一的落点。
+10. **错题库没有搜索框**：`S.bank.q` 是死变量，后端 `?q=` 早就支持了。
+
+### P3
+
+11. 历史周切换（`?week=` 后端已支持，前端不发）。
+12. 离线暂存（IndexedDB 队列）——电脑没开时手机拍的照片会丢在相册里。
+13. 家长只读视图 `#/parent`（不显示题干和错因）。
+
+### 网页设计 skill 放在哪
+
+`D:\oransky\Desktop\oransky\网页前端skill\SKILL.md`（438 行）。
+**刻意没有放进 `~/.dsh/skills/`**：那里会每次对话自动加载，用户要求不要自动加载。
+需要用时把内容贴给会话，或临时复制进 `~/.dsh/skills/`。
