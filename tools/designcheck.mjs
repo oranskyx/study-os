@@ -155,6 +155,11 @@ for (const width of WIDTHS) {
     const url = route.includes('.html') ? BASE + route : BASE + '/#' + (route === '/' ? '' : route);
     await send('Page.navigate', { url });
     await sleep(Number(argOf('wait', 1400)));
+    const act = argOf('act', '');
+    if (act) {
+      await send('Runtime.evaluate', { expression: 'document.querySelector(' + JSON.stringify(act) + ') && document.querySelector(' + JSON.stringify(act) + ').click()' });
+      await sleep(1600);
+    }
     let m = null;
     try {
       const r = await send('Runtime.evaluate', { expression: METRICS, returnByValue: true, awaitPromise: true });
@@ -170,7 +175,7 @@ for (const width of WIDTHS) {
     } catch {}
     report.push({ width, route, shot, metrics: m });
     if (process.argv.includes('--dump')) {
-      const d = await send('Runtime.evaluate', { expression: 'document.body.innerText.replace(/\\s+/g," ").slice(0,300)', returnByValue: true });
+      const d = await send('Runtime.evaluate', { expression: 'document.body.innerText.replace(/\\s+/g," ").slice(0,1600)', returnByValue: true });
       console.log('  [text] ' + (d.result && d.result.value));
     }
     const mm = m || {};

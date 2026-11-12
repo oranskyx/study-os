@@ -348,6 +348,9 @@ export function weeklyStats(weekKey) {
     by_kp: byKp,
     by_error_type: byType,
     by_status: byStatus,
+    by_subject: subjectStats(s, e),
+    daily: dailySeries(s, e),
+    completion: completionStats(s, e),
   };
 }
 
@@ -441,6 +444,11 @@ export function monthStats(monthKey) {
        FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?
       GROUP BY type ORDER BY n DESC`, s, e
   );
+  const byDifficulty = all(
+    `SELECT difficulty, COUNT(*) AS n
+       FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?
+      GROUP BY difficulty ORDER BY difficulty`, s, e
+  );
 
   // 每周新增趋势（整月的形状）
   const byWeek = [];
@@ -486,6 +494,11 @@ export function monthStats(monthKey) {
     by_kp: byKp,
     by_error_type: byType,
     by_week: byWeek,
+    by_difficulty: byDifficulty,
+    by_subject: subjectStats(s, e),
+    daily: dailySeries(s, e),
+    completion: completionStats(s, e),
+    long_term: longTermSeries(monthKey, 6),
     top_repeat: topRepeat,
   };
 }
@@ -517,6 +530,91 @@ export function monthDigest(monthKey, limit = 40) {
         `\n错因：${(q.error_cause || '未记录').slice(0, 70)}`
     )
     .join('\n\n');
+}
+
+// ---------------------------------------------------------------- 图表数据
+const pad2 = (n) => String(n).padStart(2, '0');
+const dayKey = (d) => {
+  const x = new Date(d);
+  return x.getFullYear() + '-' + pad2(x.getMonth() + 1) + '-' + pad2(x.getDate());
+};
+
+/** 逐日：重做次数 / 做对数 / 新增错题（按本地日期分桶） */
+export function dailySeries(startISO, endISO) {
+  const days = [];
+  const idx = new Map();
+  let cur = startOfDay(new Date(startISO));
+  const stop = startOfDay(new Date(endISO));
+  while (cur < stop) {
+    const k = dayKey(cur);
+    idx.set(k, days.length);
+    days.push({ date: k, attempts: 0, correct: 0, new_questions: 0 });
+    cur = addDays(cur, 1);
+  }
+  for (const r of all('SELECT at, result FROM attempts WHERE at>=? AND at<?', startISO, endISO)) {
+    const i = idx.get(dayKey(r.at));
+    if (i == null) continue;
+    days[i].attempts += 1;
+    if (r.result === 'correct') days[i].correct += 1;
+  }
+  for (const r of all('SELECT created_at FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?', startISO, endISO)) {
+    const i = idx.get(dayKey(r.created_at));
+    if (i != null) days[i].new_questions += 1;
+  }
+  return days;
+}
+
+/** 复习单完成情况：排了多少、做完多少、对错、还没回填 */
+export function completionStats(startISO, endISO) {
+  const r = get(
+    "SELECT COUNT(*) AS total, " +
+    "SUM(CASE WHEN si.result='correct' THEN 1 ELSE 0 END) AS correct, " +
+    "SUM(CASE WHEN si.result='wrong' THEN 1 ELSE 0 END) AS wrong, " +
+    "SUM(CASE WHEN si.result IS NULL THEN 1 ELSE 0 END) AS pending " +
+    "FROM sheet_items si JOIN sheets s ON s.id=si.sheet_id " +
+    "WHERE s.created_at>=? AND s.created_at<?",
+    startISO, endISO
+  ) || {};
+  const total = Number(r.total || 0);
+  const correct = Number(r.correct || 0);
+  const wrong = Number(r.wrong || 0);
+  const pending = Number(r.pending || 0);
+  const done = correct + wrong;
+  return { total, correct, wrong, pending, done, completion: total ? Math.round((done / total) * 100) : null };
+}
+
+/** 科目分布 */
+export function subjectStats(startISO, endISO) {
+  return all(
+    'SELECT subject_id, COUNT(*) AS n FROM questions ' +
+    'WHERE deleted_at IS NULL AND created_at>=? AND created_at<? ' +
+    'GROUP BY subject_id ORDER BY n DESC',
+    startISO, endISO
+  );
+}
+
+/** 近 N 个月趋势（含当前月） */
+export function longTermSeries(monthKey, n = 6) {
+  const months = [];
+  let cur = monthKey;
+  for (let i = 0; i < n; i++) { months.unshift(cur); cur = prevMonthKey(cur); }
+  return months.map((m) => {
+    const { start, end } = monthRange(m);
+    const s = start.toISOString();
+    const e = end.toISOString();
+    const num = (sql) => Number(get(sql, s, e)?.v ?? 0);
+    const attempts = num('SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<?');
+    const correct = num("SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<? AND result='correct'");
+    const newQ = num('SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?');
+    return {
+      month: m,
+      label: m.slice(5),
+      new_questions: newQ,
+      attempts,
+      correct,
+      accuracy: attempts ? Math.round((correct / attempts) * 100) : null,
+    };
+  });
 }
 
 export const CONFIG = { ARCHIVE_AFTER_DAYS, SHEET_PER_DAY, ARCHIVE_MIN_REVIEWS, ARCHIVE_MIN_STREAK };

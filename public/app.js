@@ -1,4 +1,7 @@
 // 错题中枢 · 前端（零构建，原生 ESM）
+// 图表是独立的 ESM 文件（charts.js），这里按需取；jsdom 测试里没有它时降级为空
+const reportDashboard = (st, monthMode) =>
+  (typeof window !== 'undefined' && window.__charts ? window.__charts.reportDashboard(st, monthMode) : '');
 
 // ---------------------------------------------------------------- 基础工具
 const $ = (s, el = document) => el.querySelector(s);
@@ -845,48 +848,7 @@ async function viewReport() {
     </div>
   `);
 
-  if (monthMode && st.by_week?.length) {
-    const max = Math.max(1, ...st.by_week.map((w) => w.n));
-    h.push(`<div class="card">
-      <h2><span class="dot"></span>每周新增走势</h2>
-      ${st.by_week
-        .map(
-          (w) => `
-        <div class="row" style="gap:8px;padding:3px 0;align-items:center">
-          <span class="small" style="width:76px;color:var(--muted)">${esc(w.week)}</span>
-          <div style="flex:1;height:9px;background:#f1f2f5;border-radius:5px;overflow:hidden">
-            <div style="height:100%;width:${Math.round((w.n / max) * 100)}%;background:var(--accent);border-radius:5px"></div>
-          </div>
-          <span class="badge">${w.n}</span>
-        </div>`
-        )
-        .join('')}
-    </div>`);
-  }
-
-  if (st.by_kp?.length) {
-    h.push(`<div class="card">
-      <h2><span class="dot"></span>${monthMode ? '本月' : '本周'}错得最多的考点</h2>
-      ${st.by_kp
-        .map(
-          (k) =>
-            `<div class="row between" style="padding:4px 0"><span class="small">${esc(k.kp)}</span><span class="badge">${k.n} 道</span></div>`
-        )
-        .join('')}
-    </div>`);
-  }
-
-  if (st.by_error_type?.length) {
-    h.push(`<div class="card">
-      <h2><span class="dot"></span>错在哪一类</h2>
-      ${st.by_error_type
-        .map(
-          (k) =>
-            `<div class="row between" style="padding:4px 0"><span class="small">${esc(k.type)}</span><span class="badge">${k.n} 道</span></div>`
-        )
-        .join('')}
-    </div>`);
-  }
+  h.push(reportDashboard(st, monthMode));
 
   if (monthMode && st.top_repeat?.length) {
     h.push(`<div class="card">
