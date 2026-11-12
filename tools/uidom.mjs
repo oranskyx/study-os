@@ -80,7 +80,8 @@ const mainText = () => ($('#main')?.textContent || '').replace(/\s+/g, ' ').trim
 const booted = await waitFor(() => mainText().length > 20, { label: '首屏渲染' });
 check('首屏完成渲染（不是白屏 / 不是一直"加载中"）', booted, `正文 ${mainText().length} 字`);
 check('顶部周期标签已填充', ($('#weekLabel')?.textContent || '').includes('-W'), $('#weekLabel')?.textContent || '空');
-check('底部导航渲染了 6 个页签', window.document.querySelectorAll('#tabbar button').length === 6,
+// 7 个：首页/录入/错题库/考试/复习单/周报/设置
+check('底部导航渲染了 7 个页签', window.document.querySelectorAll('#tabbar button').length === 7,
   `${window.document.querySelectorAll('#tabbar button').length} 个`);
 
 // ---------------------------------------------------------------- 逐视图

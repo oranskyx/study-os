@@ -186,7 +186,72 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- ---------------------------------------------------------------- 试卷
+CREATE TABLE IF NOT EXISTS exams (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  subject_id     TEXT NOT NULL DEFAULT 'math',
+  name           TEXT NOT NULL,
+  type           TEXT NOT NULL DEFAULT 'custom',  -- midterm|final|monthly|custom
+  exam_date      TEXT NOT NULL,
+  full_score     REAL,
+  my_score       REAL,
+  rank           INTEGER,
+  total_students INTEGER,
+  note           TEXT,
+  status         TEXT NOT NULL DEFAULT 'staging', -- staging|reviewing|done
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  deleted_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_exam_date ON exams(exam_date);
+
+CREATE TABLE IF NOT EXISTS exam_pages (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  exam_id     INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+  image_path  TEXT NOT NULL,
+  role        TEXT NOT NULL DEFAULT 'unknown',  -- paper|answer_sheet|answer_key|graded|mixed|unknown
+  role_conf   REAL,
+  role_note   TEXT,
+  sort        INTEGER NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'pending',  -- pending|running|done|failed
+  error       TEXT,
+  raw_json    TEXT,
+  extracted   INTEGER NOT NULL DEFAULT 0,
+  uploaded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_exam_page ON exam_pages(exam_id);
+
+CREATE TABLE IF NOT EXISTS exam_items (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  exam_id        INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+  page_id        INTEGER REFERENCES exam_pages(id) ON DELETE SET NULL,
+  q_no           TEXT NOT NULL,             -- 题号原样：1 / 12 / 21(1)
+  qtype          TEXT,                      -- choice|fill|short|essay|calc
+  stem           TEXT,
+  options_json   TEXT,
+  my_answer      TEXT,
+  correct_answer TEXT,
+  solution       TEXT,
+  grading_note   TEXT,
+  kp_name        TEXT,
+  difficulty     INTEGER,
+  score_full     REAL,
+  score_got      REAL,
+  verdict        TEXT,                      -- right|wrong|partial|unknown
+  handwriting    TEXT,                      -- printed|handwritten|mixed
+  source         TEXT NOT NULL DEFAULT 'ai',-- ai|manual
+  imported_qid   INTEGER,                   -- 已收进错题库的 questions.id
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_exam_item ON exam_items(exam_id);
 `);
+
+// 旧库补列：错题要能反查是哪次考试的哪道题
+const qCols = new Set(db.prepare("PRAGMA table_info('questions')").all().map((c) => c.name));
+if (!qCols.has('exam_id')) db.exec('ALTER TABLE questions ADD COLUMN exam_id INTEGER');
+if (!qCols.has('exam_item_id')) db.exec('ALTER TABLE questions ADD COLUMN exam_item_id INTEGER');
 
 // ---------------------------------------------------------------- seed
 const SUBJECTS = [

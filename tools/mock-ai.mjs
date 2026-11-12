@@ -232,6 +232,31 @@ function routeIntent(body) {
   if (/错题本数字化助手/.test(system)) {
     intent = 'extract';
     payload = { questions: QUESTIONS, page_note: MOCK_NOTE };
+  } else if (/高考阅卷组/.test(system)) {
+    // 试卷页识别：给一张"批改过的整卷"，带选择题、计算题和批改痕迹
+    intent = 'exam';
+    payload = {
+      page_role: 'graded',
+      role_confidence: 0.88,
+      role_reason: '页面上既有印刷题干，也有手写作答和红笔批改',
+      page_note: MOCK_NOTE,
+      questions: [
+        {
+          q_no: '1', qtype: 'choice', stem: '已知集合 $A=\\{x \\mid x>0\\}$，求 $A \\cap B$。',
+          options: { A: '$\\varnothing$', B: '$\\{1\\}$', C: '$\\{x\\mid x>1\\}$', D: '全体实数' },
+          my_answer: 'A', correct_answer: 'C', solution: null,
+          grading_note: '× 3分', score_full: 5, score_got: 0, verdict: 'wrong',
+          kp: ['集合的基本运算'], difficulty: 2, handwriting: 'mixed', incomplete: false, confidence: 0.92,
+        },
+        {
+          q_no: '2', qtype: 'calc', stem: '证明函数 $f(x)=x^3+x$ 在 $\\mathbf{R}$ 上单调递增。',
+          options: null, my_answer: '设 $x_1<x_2$，则 $f(x_1)-f(x_2)<0$',
+          correct_answer: null, solution: null,
+          grading_note: '√ 少一步因式分解 -2', score_full: 10, score_got: 8, verdict: 'partial',
+          kp: ['函数的单调性与最值'], difficulty: 3, handwriting: 'handwritten', incomplete: false, confidence: 0.9,
+        },
+      ],
+    };
   } else if (/错误根源/.test(system)) {
     intent = 'diagnose';
     payload = diagnosePayload();
