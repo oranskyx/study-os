@@ -1769,15 +1769,24 @@ function openImageEditor(file) {
           <button class="btn sm" data-ed="rotL" type="button">↺ 左转</button>
           <button class="btn sm" data-ed="rotR" type="button">↻ 右转</button>
           <button class="btn sm" data-ed="reset" type="button">全图</button>
+          <button class="btn sm" data-ed="reselect" type="button">重新框选</button>
           <span class="spacer"></span>
-          <span class="ed-size"></span>
+          <div class="ed-zoom">
+            <button class="btn sm" data-ed="zoomOut" type="button" aria-label="缩小">−</button>
+            <span class="ed-zoom-v">100%</span>
+            <button class="btn sm" data-ed="zoomIn" type="button" aria-label="放大">+</button>
+          </div>
         </div>
         <div class="ed-stage">
           <canvas class="ed-view"></canvas>
-          <div class="ed-crop"><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div>
+          <div class="ed-crop">
+            <i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i>
+            <i data-h="n" class="edge"></i><i data-h="s" class="edge"></i>
+            <i data-h="w" class="edge"></i><i data-h="e" class="edge"></i>
+          </div>
         </div>
         <div class="ed-foot">
-          <span class="ed-hint">拖框移动，拖四角改大小；空白处拖一下重新框</span>
+          <span class="ed-hint">拖框移动，拖四角/四边改大小；空白处拖一下重新框；双指可缩放</span>
           <button class="btn" data-ed="cancel" type="button">取消</button>
           <button class="btn primary" data-ed="ok" type="button">确定</button>
         </div>
@@ -1788,19 +1797,23 @@ function openImageEditor(file) {
     const view = wrap.querySelector('.ed-view');
     const cropEl = wrap.querySelector('.ed-crop');
     const sizeEl = wrap.querySelector('.ed-size');
+    const zoomEl = wrap.querySelector('.ed-zoom-v');
 
     const work = document.createElement('canvas');   // 已旋转的整图
     let rot = 0;
     let crop = { x: 0, y: 0, w: 0, h: 0 };
-    let scale = 1;
+    let fit = 1;        // 适应容器的基准缩放
+    let zoom = 1;       // 用户放大倍数（1 = 适应）
     let drag = null;
     let done = false;
+    const pointers = new Map();   // pointerId -> {x,y}，用于双指缩放
 
     const finish = (blob) => {
       if (done) return;
       done = true;
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
       bitmap.close?.();
       wrap.remove();
       resolve(blob);
@@ -1820,37 +1833,43 @@ function openImageEditor(file) {
       c.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
       c.restore();
       crop = { x: 0, y: 0, w: rs.w, h: rs.h };
+      zoom = 1;
       layout();
     }
 
-    /** 按容器大小算缩放，画到可见 canvas 上 */
+    /** 按容器大小算"适应"缩放，再乘用户放大倍数 */
     function layout() {
       const maxW = Math.max(160, stage.clientWidth - 40);   // 两侧留 16px 手指空间
       const maxH = Math.max(160, Math.min(window.innerHeight * 0.58, 520));
-      scale = Math.min(maxW / work.width, maxH / work.height, 1);
-      const dw = Math.max(1, Math.round(work.width * scale));
-      const dh = Math.max(1, Math.round(work.height * scale));
-      view.width = dw;
-      view.height = dh;
+      fit = Math.min(maxW / work.width, maxH / work.height, 1);
+      const dw = Math.max(1, Math.round(work.width * fit * zoom));
+      const dh = Math.max(1, Math.round(work.height * fit * zoom));
+      view.width = Math.round(work.width * Math.min(1, fit * zoom) ) || dw;
+      view.height = Math.round(work.height * Math.min(1, fit * zoom)) || dh;
       view.style.width = `${dw}px`;
       view.style.height = `${dh}px`;
       const c = view.getContext('2d');
-      c.clearRect(0, 0, dw, dh);
-      c.drawImage(work, 0, 0, dw, dh);
+      c.clearRect(0, 0, view.width, view.height);
+      c.drawImage(work, 0, 0, view.width, view.height);
+      zoomEl.textContent = Math.round(zoom * 100) + '%';
       drawCrop();
     }
 
     function drawCrop() {
       // 关键：以图片实际显示的位置为准，而不是按 scale 硬算。
-      // 舞台是 flex 居中、还可能被 CSS max-width 缩过，用 scale 算会整体偏移。
+      // 舞台是 flex 居中、还可能被 CSS 缩过、放大后还会滚动，用 scale 算会整体偏移。
       const r = view.getBoundingClientRect();
       const s = stage.getBoundingClientRect();
       const sx = r.width / work.width;
       const sy = r.height / work.height;
-      cropEl.style.left = `${Math.round(r.left - s.left + crop.x * sx)}px`;
-      cropEl.style.top = `${Math.round(r.top - s.top + crop.y * sy)}px`;
+      cropEl.style.left = `${Math.round(r.left - s.left + stage.scrollLeft + crop.x * sx)}px`;
+      cropEl.style.top = `${Math.round(r.top - s.top + stage.scrollTop + crop.y * sy)}px`;
       cropEl.style.width = `${Math.round(crop.w * sx)}px`;
       cropEl.style.height = `${Math.round(crop.h * sy)}px`;
+      // 把手尺寸跟着框走：框太小时按比例缩小，否则把手会盖死整张图
+      const smaller = Math.min(cropEl.offsetWidth, cropEl.offsetHeight);
+      const handle = Math.max(22, Math.min(44, smaller * 0.42));
+      cropEl.style.setProperty('--handle', handle + 'px');
       sizeEl.textContent = `裁切 ${Math.round(crop.w)}×${Math.round(crop.h)}（原图 ${bitmap.width}×${bitmap.height}）`;
     }
 
@@ -1866,10 +1885,41 @@ function openImageEditor(file) {
     /** 裁切框最小尺寸：按屏幕像素算，保证手指还抓得住 */
     function minWorkSize() {
       const r = view.getBoundingClientRect();
-      return Math.max(32, (72 / Math.max(1, r.width)) * work.width);
+      return Math.max(24, (60 / Math.max(1, r.width)) * work.width);
+    }
+
+    /** 以舞台中心为锚点设置缩放，尽量不让人"跟丢"位置 */
+    function setZoom(next, anchor) {
+      const z = Math.max(1, Math.min(4, Math.round(next * 10) / 10));
+      if (z === zoom) return;
+      const before = view.getBoundingClientRect();
+      const s = stage.getBoundingClientRect();
+      const ax = anchor ? anchor.x : s.left + s.width / 2;
+      const ay = anchor ? anchor.y : s.top + s.height / 2;
+      const rx = (ax - before.left) / Math.max(1, before.width);
+      const ry = (ay - before.top) / Math.max(1, before.height);
+      zoom = z;
+      layout();
+      const after = view.getBoundingClientRect();
+      stage.scrollLeft += after.left + rx * after.width - ax;
+      stage.scrollTop += after.top + ry * after.height - ay;
+      drawCrop();
     }
 
     function onMove(ev) {
+      // 双指：缩放（不做裁切）——先把这一指的新位置记下来，距离才会变
+      if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pointers.size >= 2) {
+        ev.preventDefault();
+        const pts = [...pointers.values()];
+        const a = pts[0], b = pts[1];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        if (drag?.mode === 'pinch' && drag.startDist > 0) {
+          setZoom(drag.startZoom * (dist / drag.startDist), mid);
+        }
+        return;
+      }
       if (!drag) return;
       ev.preventDefault();
       const p = toWork(ev);
@@ -1899,7 +1949,9 @@ function openImageEditor(file) {
       drawCrop();
     }
 
-    function onUp() {
+    function onUp(ev) {
+      if (ev && ev.pointerId != null) pointers.delete(ev.pointerId);
+      if (drag?.mode === 'pinch' && pointers.size < 2) { drag = null; return; }
       if (!drag) return;
       drag = null;
       crop = clampRect(crop, work.width, work.height, minWorkSize());
@@ -1909,6 +1961,7 @@ function openImageEditor(file) {
     cropEl.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
       const h = ev.target?.dataset?.h;
       drag = h
         ? { mode: 'resize', h, start: toWork(ev), base: { ...crop } }
@@ -1919,6 +1972,16 @@ function openImageEditor(file) {
     // 图片四周留出的空白也算数：手指从框外按下去就开始画新框，
     // 不用非得精确戳在图片上（手机屏幕小、手指粗，差几像素很正常）。
     stage.addEventListener('pointerdown', (ev) => {
+      pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pointers.size >= 2) {
+        const pts = [...pointers.values()];
+        drag = {
+          mode: 'pinch',
+          startDist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y),
+          startZoom: zoom,
+        };
+        return;
+      }
       if (cropEl.contains(ev.target)) return;   // 点在裁切框上交给上面处理
       ev.preventDefault();
       const p = toWork(ev);
@@ -1928,6 +1991,7 @@ function openImageEditor(file) {
 
     window.addEventListener('pointermove', onMove, { passive: false });
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
 
     wrap.addEventListener('click', (ev) => {
       const act = ev.target?.closest?.('[data-ed]')?.dataset.ed;
@@ -1935,9 +1999,21 @@ function openImageEditor(file) {
       if (act === 'rotL') { rot = (rot + 270) % 360; apply(); }
       else if (act === 'rotR') { rot = (rot + 90) % 360; apply(); }
       else if (act === 'reset') apply();
+      else if (act === 'reselect') {
+        // 清空裁切框：下次在图上拖一下就是新的框
+        crop = { x: 0, y: 0, w: 0, h: 0 };
+        drawCrop();
+        toast('在图上拖一下，画一个新框', 'info');
+      }
+      else if (act === 'zoomIn') setZoom(zoom + 0.5);
+      else if (act === 'zoomOut') setZoom(zoom - 0.5);
       else if (act === 'cancel') finish(null);
       else if (act === 'ok') {
         crop = clampRect(crop, work.width, work.height);
+        if (crop.w < 8 || crop.h < 8) {
+          toast('先框出一块区域再确定', 'warn');
+          return;
+        }
         const out = document.createElement('canvas');
         out.width = Math.max(1, Math.round(crop.w));
         out.height = Math.max(1, Math.round(crop.h));
@@ -1949,6 +2025,11 @@ function openImageEditor(file) {
         out.toBlob((b) => finish(b), 'image/jpeg', 0.92);
       }
     });
+
+    // 双指缩放时不滚动页面
+    stage.addEventListener('touchmove', (ev) => {
+      if (pointers.size >= 2) ev.preventDefault();
+    }, { passive: false });
 
     apply();
     // 小屏上第一次布局时 stage 宽度可能还没算出来，下一帧再对一次
