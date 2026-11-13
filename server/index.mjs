@@ -117,6 +117,15 @@ app.get('/api/meta', wrap(async (_req, res) => {
         nowISO()
       )?.v || 0
     ),
+    // 逾期但一次都没复习过：这类题最容易被系统"假装处理掉了"
+    staleNever: Number(
+      get(
+        `SELECT COUNT(*) AS v FROM questions
+          WHERE status!='archived' AND deleted_at IS NULL
+            AND review_count=0 AND next_review_at <= ?`,
+        nowISO()
+      )?.v || 0
+    ),
   });
 }));
 
@@ -203,19 +212,46 @@ app.post('/api/pages/:id/extract', wrap(async (req, res) => {
 
 // ---------------------------------------------------------------- 错题
 app.get('/api/questions', wrap(async (req, res) => {
-  const { status, kp, q, subject, limit = 200 } = req.query;
+  const { status, kp, q, subject, stale, limit = 200 } = req.query;
   const where = ['deleted_at IS NULL'];
   const p = [];
   if (status && status !== 'all') { where.push('status=?'); p.push(status); }
   if (subject && subject !== 'all') { where.push('subject_id=?'); p.push(subject); }
   if (kp) { where.push('kp_name LIKE ?'); p.push(`%${kp}%`); }
   if (q) { where.push('(stem LIKE ? OR error_cause LIKE ?)'); p.push(`%${q}%`, `%${q}%`); }
+  if (stale === '1') {
+    where.push("review_count=0 AND next_review_at <= ?");
+    p.push(nowISO());
+  }
   p.push(Math.min(500, Number(limit) || 200));
   res.json(all(
     `SELECT * FROM questions WHERE ${where.join(' AND ')}
       ORDER BY CASE status WHEN 'key' THEN 0 WHEN 'first' THEN 1 ELSE 2 END,
                COALESCE(next_review_at,'9999') ASC, id DESC
       LIMIT ?`, ...p
+  ));
+}));
+
+/** 按考点聚合：一眼看到哪几个考点堆了最多题 */
+app.get('/api/questions/group', wrap(async (req, res) => {
+  const by = S(req.query.by) || 'kp';
+  const subject = S(req.query.subject);
+  const where = ['deleted_at IS NULL', "status!='archived'"];
+  const p = [];
+  if (subject && subject !== 'all') { where.push('subject_id=?'); p.push(subject); }
+  const cols = by === 'subject'
+    ? { key: 'subject_id', label: 'subject_id' }
+    : by === 'type'
+      ? { key: "COALESCE(error_type,'未分类')", label: "COALESCE(error_type,'未分类')" }
+      : { key: "COALESCE(kp_name,'未标注')", label: "COALESCE(kp_name,'未标注')" };
+  res.json(all(
+    `SELECT ${cols.label} AS grp, COUNT(*) AS n,
+            SUM(CASE WHEN status='key' THEN 1 ELSE 0 END) AS key_n,
+            SUM(error_count) AS errors,
+            MAX(last_error_at) AS last_at
+       FROM questions WHERE ${where.join(' AND ')}
+      GROUP BY grp ORDER BY n DESC, errors DESC`,
+    ...p
   ));
 }));
 
@@ -229,6 +265,19 @@ app.get('/api/questions/:id', wrap(async (req, res) => {
     attempts: all('SELECT * FROM attempts WHERE question_id=? ORDER BY at DESC', q.id),
     variants: all('SELECT * FROM variants WHERE question_id=? ORDER BY id', q.id),
   });
+}));
+
+/** 归档题重新激活：只有手动点才算，自动归档仍然是单向的 */
+app.post('/api/questions/:id/reactivate', wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const q = get('SELECT * FROM questions WHERE id=? AND deleted_at IS NULL', id);
+  if (!q) return res.status(404).json({ error: '错题不存在' });
+  run(
+    `UPDATE questions SET status='first', archived_at=NULL, archive_reason=NULL,
+            correct_streak=0, next_review_at=?, updated_at=? WHERE id=?`,
+    nowISO(), nowISO(), id
+  );
+  res.json({ ok: true, question: get('SELECT * FROM questions WHERE id=?', id) });
 }));
 
 app.post('/api/questions/bulk', wrap(async (req, res) => {
@@ -597,8 +646,44 @@ app.post('/api/report/monthly', wrap(async (req, res) => {
   });
 }));
 
+// ---------------------------------------------------------------- 导出（备份 / 换机）
+app.get('/api/export', wrap(async (_req, res) => {
+  const dump = {
+    exported_at: nowISO(),
+    version: 1,
+    subjects: all('SELECT * FROM subjects ORDER BY sort'),
+    kps: all('SELECT * FROM kps'),
+    questions: all('SELECT * FROM questions WHERE deleted_at IS NULL ORDER BY id'),
+    attempts: all('SELECT * FROM attempts ORDER BY id'),
+    variants: all('SELECT * FROM variants ORDER BY id'),
+    sheets: all('SELECT * FROM sheets ORDER BY id'),
+    sheet_items: all('SELECT * FROM sheet_items ORDER BY id'),
+    methods: all('SELECT * FROM methods ORDER BY id'),
+    exams: all('SELECT * FROM exams WHERE deleted_at IS NULL ORDER BY id'),
+    exam_items: all('SELECT * FROM exam_items ORDER BY id'),
+  };
+  res.setHeader('Content-Disposition', 'attachment; filename="study-os-export.json"');
+  res.json(dump);
+}));
+
 // ---------------------------------------------------------------- 方法论
 app.get('/api/methods', wrap(async (_req, res) => {  res.json(all("SELECT * FROM methods WHERE status='active' ORDER BY updated_at DESC"));
+}));
+
+app.post('/api/methods', wrap(async (req, res) => {
+  const b = req.body || {};
+  if (!S(b.title) || !S(b.body)) return res.status(400).json({ error: '标题和正文都要填' });
+  const id = insert('methods', {
+    subject_id: S(b.subject_id),
+    kp_name: S(b.kp_name),
+    title: S(b.title),
+    body: S(b.body),
+    version: 1,
+    status: 'active',
+    created_at: nowISO(),
+    updated_at: nowISO(),
+  });
+  res.json({ id, method: get('SELECT * FROM methods WHERE id=?', id) });
 }));
 
 app.patch('/api/methods/:id', wrap(async (req, res) => {

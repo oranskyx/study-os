@@ -581,6 +581,23 @@ textarea { min-height: 68px; line-height: 1.65; }
 }
 .bank-scroll::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
+/* ---------------------------------------------------------- 错题库分组 */
+.grp-list { display: grid; gap: 2px; }
+.grp-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 1.2fr) 2fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.grp-row:hover { background: var(--subtle); }
+.grp-row .gl { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grp-row .gb { height: 6px; background: var(--subtle); border-radius: 2px; overflow: hidden; }
+.grp-row .gb i { display: block; height: 100%; background: var(--ink); border-radius: 2px; }
+.grp-row .gn { font-size: 12.5px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
 /* ---------------------------------------------------------- 考试 / 试卷 */
 .exam-list { display: grid; gap: 10px; }
 .exam-card {
