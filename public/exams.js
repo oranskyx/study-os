@@ -273,6 +273,43 @@ function stageView(d) {
 }
 
 // ---------------------------------------------------------------- ② 人工核对
+/** 答题卡可视化：每个选项三种状态（未涂/黑笔/红笔）+ 老师批改标记 */
+function marksEditor(it) {
+  let m = {};
+  try { m = it.marks_json ? JSON.parse(it.marks_json) : {}; } catch { m = {}; }
+  const has = m.visible || m.filled || m.black || m.red;
+  if (!has && it.qtype !== 'choice') return '';
+
+  const stateOf = (L) => {
+    if ((m.black || []).includes(L)) return 'black';
+    if ((m.red || []).includes(L)) return 'red';
+    if ((m.visible || []).includes(L)) return 'clear';
+    if ((m.filled || []).includes(L)) return 'filled';
+    return 'none';
+  };
+  const LABEL = { black: '黑涂', red: '红改', clear: '可见', filled: '已涂', none: '未涂' };
+  const chips = ['A', 'B', 'C', 'D'].map((L) => {
+    const st = stateOf(L);
+    return '<button type=\"button\" class=\"opt-chip ' + st + '\" data-act=\"mark-cycle\" data-iid=\"' + it.id + '\" data-l=\"' + L + '\">' +
+      '<b>' + L + '</b><span>' + LABEL[st] + '</span></button>';
+  }).join('');
+
+  return '<div class=\"marks-box\">' +
+    '<div class=\"marks-head\">' +
+      '<span class=\"small\">答题卡（点字母切换：未涂 → 黑笔 → 红笔）</span>' +
+      '<span class=\"spacer\" style=\"flex:1\"></span>' +
+      '<select data-act=\"mark-teacher\" data-iid=\"' + it.id + '\">' +
+        '<option value=\"\"' + (!m.teacher ? ' selected' : '') + '>无批改</option>' +
+        '<option value=\"tick\"' + (m.teacher === 'tick' ? ' selected' : '') + '>红勾</option>' +
+        '<option value=\"cross\"' + (m.teacher === 'cross' ? ' selected' : '') + '>红叉/红框</option>' +
+      '</select>' +
+    '</div>' +
+    '<div class=\"opt-chips\">' + chips + '</div>' +
+    '<div class=\"marks-note\">涂了的字母 = 全集减去「可见」；黑笔是你写的，红笔是老师补的。' +
+      '保存后按「黑红都有=错、只有红=没写、标准答案优先」判定。</div>' +
+  '</div>';
+}
+
 async function reviewView(d) {
   const { esc } = A();
   const items = d.items;
@@ -337,6 +374,8 @@ async function reviewView(d) {
 
         <label class="field"><span>题干</span>
           <textarea data-f="stem" data-iid="${it.id}" rows="3">${esc(it.stem || '')}</textarea></label>
+
+        ${marksEditor(it)}
 
         ${opts ? `<div class="opts">${Object.entries(opts).map(([k, vv]) =>
           `<div class="opt"><b>${esc(k)}</b> ${esc(vv)}</div>`).join('')}</div>` : ''}
@@ -552,6 +591,25 @@ export async function handle(act, el) {
     return render();
   }
 
+  if (act === 'mark-teacher') return true;
+  if (act === 'mark-cycle') {
+    const iid = String(el.dataset.iid);
+    const L = el.dataset.l;
+    const item = (S2.detail?.items || []).find((x) => String(x.id) === iid);
+    let m = {};
+    try { m = item?.marks_json ? JSON.parse(item.marks_json) : {}; } catch { m = {}; }
+    const black = new Set(m.black || []);
+    const red = new Set(m.red || []);
+    const visible = new Set(m.visible || []);
+    const cur = black.has(L) ? 'black' : red.has(L) ? 'red' : 'none';
+    // 循环：未涂 → 黑笔 → 红笔 → 未涂
+    black.delete(L); red.delete(L); visible.delete(L);
+    if (cur === 'none') black.add(L);
+    else if (cur === 'black') red.add(L);
+    m.black = [...black]; m.red = [...red]; m.visible = [...visible];
+    if (item) item.marks_json = JSON.stringify(m);
+    return render();
+  }
   if (act === 'exam-save-items') {
     el.disabled = true;
     const cards = [...document.querySelectorAll('[data-iid]')];
@@ -565,6 +623,12 @@ export async function handle(act, el) {
       byId.get(iid)[f] = inp.value;
     }
     let n = 0;
+    // 答题卡：把 marks 一起提交，服务端按「可见/黑/红/批改/标准答案」重算对错
+    for (const it of S2.detail?.items || []) {
+      if (!it.marks_json) continue;
+      const cab = byId.get(String(it.id)) || {};
+      byId.set(String(it.id), { ...cab, marks: JSON.parse(it.marks_json) });
+    }
     for (const [iid, patch] of byId) {
       await api('/api/exams/items/' + iid, { method: 'PATCH', body: patch });
       n++;
@@ -596,6 +660,19 @@ export async function handle(act, el) {
 export function bindEvents() {
   // select 的 change 用事件委托，避免每次渲染重建监听
   document.addEventListener('change', async (e) => {
+    const t = e.target.closest('[data-act="mark-teacher"]');
+    if (t) {
+      const iid = String(t.dataset.iid);
+      const item = (S2.detail?.items || []).find((x) => String(x.id) === iid);
+      if (item) {
+        let m = {};
+        try { m = item.marks_json ? JSON.parse(item.marks_json) : {}; } catch { m = {}; }
+        m.teacher = t.value || null;
+        item.marks_json = JSON.stringify(m);
+      }
+      return;
+    }
+
     const sel = e.target.closest('[data-act="exam-role"]');
     if (!sel) return;
     await window.__app.api('/api/exams/pages/' + sel.dataset.pid, {

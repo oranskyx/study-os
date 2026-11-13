@@ -12,6 +12,8 @@
 //   2) 快捷方式里不写死路径，VBS 自己按所在目录推导，搬家不用改
 
 import { execFileSync } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { status as fwStatus } from './firewall.mjs';
 import { existsSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,7 +70,35 @@ $sc = $ws.CreateShortcut(${q(LNK)})
   return { target: pick('TARGET'), args: pick('ARGS'), workdir: pick('WORKDIR') };
 }
 
-function install() {
+/** 问一句 y/N；非交互环境（管道/CI）直接拒绝，绝不默认装 */
+async function confirm(question) {
+  if (!process.stdin.isTTY) return false;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ans = await new Promise((res) => rl.question(question + ' [y/N] ', res));
+  rl.close();
+  return /^y(es)?$/i.test(String(ans).trim());
+}
+
+async function install() {
+  if (!process.argv.includes('--yes')) {
+    console.log('');
+    console.log('  开机自启动会在「启动」文件夹放一个快捷方式，登录 Windows 后自动在后台起服务。');
+    console.log('  它不会弹窗口、不会自动开浏览器；卸载：npm run autostart:remove');
+    const ok = await confirm('  要装吗？');
+    if (!ok) {
+      console.log('  已取消，什么都没改。');
+      process.exit(0);
+    }
+  }
+
+  // 手机要连就得放行入站端口；没规则时提醒一次（不自动提权，权限得用户点）
+  const fw = fwStatus();
+  if (fw.present === false) {
+    console.log('');
+    console.log('  提示：防火墙里还没有 ' + PORT + ' 的入站规则，手机会连不上。');
+    console.log('        需要时运行：npm run firewall:add（会弹 UAC，你点「是」）');
+  }
+
   for (const f of [VBS, CMD]) {
     if (!existsSync(f)) {
       console.error(`缺少文件：${f}`);
@@ -128,6 +158,17 @@ async function status() {
   console.log('');
 }
 
+/** 关掉「_autostart.cmd」留下的控制台窗口；不碰别的 cmd，更不碰编辑器/终端 */
+function closeOrphanWindows() {
+  try {
+    const script = 'Get-CimInstance Win32_Process -Filter "Name=\'cmd.exe\'" | ' +
+      'Where-Object { $_.CommandLine -like \'*_autostart.cmd*\' } | ' +
+      'ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }';
+    const out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' }).trim();
+    return out ? out.split(/\s+/).filter(Boolean).length : 0;
+  } catch { return 0; }
+}
+
 function stop() {
   try {
     const out = execFileSync(
@@ -145,6 +186,8 @@ function stop() {
     }
     execFileSync('taskkill', ['/PID', out, '/F'], { stdio: 'ignore' });
     console.log(`  已停止 PID ${out}`);
+    const closed = closeOrphanWindows();
+    if (closed) console.log(`  顺手关掉了 ${closed} 个残留的命令行窗口`);
   } catch (e) {
     console.error(`  停止失败：${e.message}`);
     process.exit(1);
@@ -154,7 +197,7 @@ function stop() {
 const action = process.argv[2];
 switch (action) {
   case 'install':
-    install();
+    await install();
     break;
   case 'remove':
     remove();
