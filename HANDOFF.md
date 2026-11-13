@@ -460,6 +460,58 @@ D:\oransky\Desktop\oransky\dsh\study-os
 
 ## 16. 变更记录
 
+### 2026-11-13（第六轮：闭环补齐 + 批量 + 裁剪编辑器）
+
+按「先让系统不说谎 → 补空前端 → 批量 → 重构裁剪」的顺序做完六批。
+
+**P1 说真话**
+
+- 首页新增「一直没排上队的题」：review_count=0 且已到期的题单列（GET /api/questions?stale=1）。
+  以前这些题会被 dueNow 混在里面，看不出「排了但从来没轮到」。
+- 错题库加搜索框（题干/错因，输入防抖 260ms，焦点保持），并新增「按考点」聚合
+  （GET /api/questions/group?by=kp|subject|type），点聚合行直接筛到该考点。
+
+**P1 断掉的回路**
+
+- 归档题可「重新激活」：POST /api/questions/:id/reactivate，清 archived_at/archive_reason、
+  correct_streak 归零、next_review_at 设为现在。自动归档仍是单向的，只有手动才回得来。
+- 变式题人工审核：详情页每题四个按钮写 variants.verdict（good/too_hard/too_easy/wrong）。
+  这一列和 PATCH /api/variants/:id 从第一版就存在，前端一次都没调用过。
+
+**P2 空前端补上**
+
+- #/methods 方法论视图（列表/编辑/新增），周报页加入口；新增 POST /api/methods。
+- GET /api/export 全量导出 JSON（题目/记录/变式/复习单/方法论/考试），设置页加下载按钮。
+  导出不含 API key（key 在 settings 表，不在导出集合里）。
+
+**P2 批量**
+
+- 错题库每张卡加勾选框，选中后出现批量条：改考点 / 标为重点 / 标为头次错 / 删除 / 取消。
+  后端 POST /api/questions/batch，字段白名单，一次请求改多道。
+- 录入核对：置信度 ≥85% 的草稿把「答案/错因/解析」折进 details，题干和考点仍然摊开；
+  20 道题从 120 个检查点降到每道 2 个必看。
+
+**P3 裁剪编辑器重构（public/app.js openImageEditor）**
+
+| 之前 | 现在 |
+|---|---|
+| 不能缩放，字小的图看不清 | 工具栏 −/+ 缩放（1x~4x），舞台可滚动；缩放以按点为中心，不会跟丢 |
+| 手机没法放大 | 双指捏合缩放（pointer 事件，顺带禁掉页面滚动） |
+| 只有四角把手 | 四角 + 四边把手；把手尺寸随框自适应（22~44px），小框不会盖死整张图 |
+| 想重框得先取消 | 「重新框选」按钮清空框，再在图上拖一下就是新框 |
+| 全图缩回要靠「全图」 | 「全图」重置旋转与缩放；缩放有百分比显示 |
+
+对齐仍然按 getBoundingClientRect 算（含滚动偏移），所以放大后拖框不会偏。
+
+**测试**
+
+- test:api 68 → 83 项：聚合/搜索/stale/重激活/导出/方法论。
+- 新增 tools/cropcheck-extra.mjs 11 项：缩放、百分比、重新框选、边把手只改一个方向、双指缩放。
+  这套没进 test:all（需要真浏览器 + 测试图），单独跑：
+  BASE=http://127.0.0.1:7788 node tools/cropcheck-extra.mjs。
+- 回归 tools/cropcheck.mjs 5 项：对齐偏移仍是 0,0（含旋转与缩放）。
+- 总计 test:all 228 项全绿。
+
 ### 2026-11-13（第五轮：试卷分析）
 
 新增「考试」页（第 7 个页签）：传原卷/答题卡/答案 → 自动判类型 → 识别 → 人工核对 → 收错题 → 失分分析。
