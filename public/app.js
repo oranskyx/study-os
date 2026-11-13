@@ -185,7 +185,7 @@ function toast(msg, kind = 'info') {
 const S = {
   meta: null,
   cap: { subject: 'math', busy: null, drafts: [], page: null, error: null, note: '' },
-  bank: { status: 'all', q: '', mode: 'list' },
+  bank: { status: 'all', q: '', mode: 'list', sel: [] },
   sheet: { results: {}, busy: false },
   report: { mode: 'week', busy: false },
   methodEdit: null,
@@ -466,6 +466,8 @@ function draftCard(d, i) {
   const figPlaceholder = /[【\[]\s*图\s*[】\]]|图看不清/.test(String(d.stem || ''));
   const confColor = conf == null ? 'var(--muted)' : conf >= 80 ? 'var(--ok)' : conf >= 55 ? 'var(--warn)' : 'var(--bad)';
   const chapterOpts = kpOptions(d.subject_id || S.cap.subject, d.kp_name);
+  // 置信度够高就把次要字段折起来，只摊开题干和考点
+  const foldRest = conf != null && conf >= 85;
 
   return `
     <div class="q" data-draft="${i}">
@@ -491,6 +493,8 @@ function draftCard(d, i) {
         <textarea data-dk="stem" data-i="${i}" rows="5">${esc(d.stem)}</textarea>
       </label>
       <div class="pv" data-pv="${i}:stem"></div>
+      <details class="fold" ${foldRest ? '' : 'open'}>
+        <summary>${foldRest ? '答案 / 错因 / 解析（置信 ' + conf + '%，已折叠，点开可改）' : '答案 / 错因 / 解析'}</summary>
       <div class="row" style="gap:10px">
         <label class="field" style="flex:1;min-width:140px">
           <span>我的答案</span>
@@ -530,6 +534,7 @@ function draftCard(d, i) {
           </select>
         </label>
       </div>
+      </details>
     </div>
   `;
 }
@@ -580,6 +585,14 @@ async function viewBank() {
         <input id="bankSearch" placeholder="搜题干或错因…" value="${esc(kw)}" style="flex:1">
         ${kw ? '<button class="btn sm ghost" data-act="bank-clear">清除</button>' : ''}
       </div>
+      ${(S.bank.sel || []).length ? `<div class="row bulkbar">
+        <span class="small">已选 ${S.bank.sel.length} 道</span>
+        <button class="btn sm" data-act="bank-batch-kp">改考点</button>
+        <button class="btn sm" data-act="bank-batch-status" data-status="key">标为重点</button>
+        <button class="btn sm" data-act="bank-batch-status" data-status="first">标为头次错</button>
+        <button class="btn sm bad" data-act="bank-batch-del">删除</button>
+        <button class="btn sm ghost" data-act="bank-batch-clear">取消选择</button>
+      </div>` : ''}
     </div>
   `];
 
@@ -617,6 +630,8 @@ async function viewBank() {
         return `
         <div class="q" data-act="q-open" data-id="${q.id}" style="cursor:pointer">
           <div class="head">
+            <input type="checkbox" class="qpick" data-act="bank-pick" data-id="${q.id}"
+              ${(S.bank.sel || []).includes(q.id) ? 'checked' : ''} onclick="event.stopPropagation()">
             ${badge}
             <span class="badge d">${esc(q.kp_name || '未标注')}</span>
             <span class="badge d">难度 ${q.difficulty || '?'}</span>
@@ -1258,6 +1273,49 @@ document.addEventListener('click', async (e) => {
       S.meta = null;
       toast(`已存入 ${r.created} 道错题`, 'ok');
       return go('bank');
+    }
+
+    if (act === 'bank-pick') {
+      const id = Number(el.dataset.id);
+      const sel = S.bank.sel || (S.bank.sel = []);
+      const i = sel.indexOf(id);
+      if (i >= 0) sel.splice(i, 1); else sel.push(id);
+      return render();
+    }
+
+    if (act === 'bank-batch-clear') {
+      S.bank.sel = [];
+      return render();
+    }
+
+    if (act === 'bank-batch-status') {
+      const ids = S.bank.sel || [];
+      if (!ids.length) return;
+      await api('/api/questions/batch', { method: 'POST', body: { ids, patch: { status: el.dataset.status } } });
+      S.bank.sel = [];
+      toast('已改 ' + ids.length + ' 道', 'ok');
+      return render();
+    }
+
+    if (act === 'bank-batch-kp') {
+      const ids = S.bank.sel || [];
+      if (!ids.length) return;
+      const kp = prompt('统一改成哪个考点？（要和考点表里的字一样，留空=不标注）');
+      if (kp === null) return;
+      await api('/api/questions/batch', { method: 'POST', body: { ids, patch: { kp_name: kp || null } } });
+      S.bank.sel = [];
+      toast('已改 ' + ids.length + ' 道的考点', 'ok');
+      return render();
+    }
+
+    if (act === 'bank-batch-del') {
+      const ids = S.bank.sel || [];
+      if (!ids.length) return;
+      if (!confirm('删掉选中的 ' + ids.length + ' 道题？（软删除，数据库里还留行）')) return;
+      await api('/api/questions/batch', { method: 'POST', body: { ids, patch: { softDelete: true } } });
+      S.bank.sel = [];
+      toast('已删除 ' + ids.length + ' 道', 'ok');
+      return render();
     }
 
     if (act === 'bank-mode') {

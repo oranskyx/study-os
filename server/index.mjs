@@ -268,6 +268,26 @@ app.get('/api/questions/:id', wrap(async (req, res) => {
 }));
 
 /** 归档题重新激活：只有手动点才算，自动归档仍然是单向的 */
+/** 批量改错题：一次请求改多道（改考点/难度/状态/软删除） */
+app.post('/api/questions/batch', wrap(async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+  if (!ids.length) return res.status(400).json({ error: '没有选中任何题' });
+  const patch = req.body?.patch || {};
+  const allowed = ['kp_name', 'error_type', 'difficulty', 'status', 'variant_mode'];
+  const sets = [];
+  const vals = [];
+  for (const k of allowed) {
+    if (k in patch) { sets.push(k + '=?'); vals.push(patch[k]); }
+  }
+  if (patch.softDelete) { sets.push('deleted_at=?'); vals.push(nowISO()); }
+  if (!sets.length) return res.status(400).json({ error: '没有要改的字段' });
+  sets.push('updated_at=?');
+  vals.push(nowISO());
+  const ph = ids.map(() => '?').join(',');
+  run(`UPDATE questions SET ${sets.join(', ')} WHERE id IN (${ph})`, ...vals, ...ids);
+  res.json({ updated: ids.length });
+}));
+
 app.post('/api/questions/:id/reactivate', wrap(async (req, res) => {
   const id = Number(req.params.id);
   const q = get('SELECT * FROM questions WHERE id=? AND deleted_at IS NULL', id);
