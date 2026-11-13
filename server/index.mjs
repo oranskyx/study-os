@@ -76,6 +76,29 @@ function resolveKp(subjectId, rawName) {
 
 const S = (v) => (v === undefined || v === null ? null : String(v).trim() || null);
 
+// ---------------------------------------------------------------- 访问令牌（局域网保护，默认关闭）
+const TOKEN_KEY = 'access_token';
+function accessToken() {
+  return process.env.ACCESS_TOKEN || S(get('SELECT value FROM settings WHERE key=?', TOKEN_KEY)?.value);
+}
+
+app.use((req, res, next) => {
+  const token = accessToken();
+  if (!token) return next();
+  const cookie = (req.headers.cookie || '').match(/(?:^|;\\s*)sos_t=([^;]+)/);
+  const given = String(req.query.t || (cookie && decodeURIComponent(cookie[1])) || req.headers['x-sos-token'] || '');
+  if (given && given === token) {
+    if (req.query.t) res.setHeader('Set-Cookie', 'sos_t=' + encodeURIComponent(token) + '; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000');
+    return next();
+  }
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: '需要访问令牌', needToken: true });
+  res.status(401).type('html').send(
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
+    "<div style='font:15px/1.7 system-ui;max-width:32em;margin:15vh auto;padding:0 20px'>" +
+    '<h2>需要访问令牌</h2><p>这台机器的错题中枢开了局域网保护。</p>' +
+    '<p>用电脑首页上的二维码扫码打开，或在地址后加 <code>?t=你的令牌</code>。</p></div>'
+  );
+});
 // ---------------------------------------------------------------- meta
 app.get('/api/meta', wrap(async (_req, res) => {
   const counts = get(
@@ -103,6 +126,7 @@ app.get('/api/meta', wrap(async (_req, res) => {
     // 全部科目的考点（带 subject_id）。以前只给数学，导致选标注时只有数学章节。
     kps: all('SELECT id, subject_id, chapter, name FROM kps ORDER BY subject_id, id'),
     config: configStatus(),
+    security: { tokenRequired: Boolean(accessToken()) },
     rules: CONFIG,
     counts: {
       first: Number(counts.first_n || 0),
@@ -210,6 +234,13 @@ app.post('/api/pages/:id/extract', wrap(async (req, res) => {
   }
 }));
 
+// ---------------------------------------------------------------- 局域网保护
+app.post('/api/security/token', wrap(async (req, res) => {
+  const raw = S(req.body?.token);
+  if (raw) run('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', TOKEN_KEY, raw);
+  else run('DELETE FROM settings WHERE key=?', TOKEN_KEY);
+  res.json({ ok: true, tokenRequired: Boolean(accessToken()) });
+}));
 // ---------------------------------------------------------------- 错题
 app.get('/api/questions', wrap(async (req, res) => {
   const { status, kp, q, subject, stale, limit = 200 } = req.query;
@@ -813,7 +844,8 @@ function lanAddrs() {
 
 app.get('/api/lan', wrap(async (_req, res) => {
   const addrs = lanAddrs();
-  const primary = addrs[0] ? `http://${addrs[0].address}:${PORT}` : null;
+  const token = accessToken();
+  const primary = addrs[0] ? `http://${addrs[0].address}:${PORT}${token ? "/?t=" + encodeURIComponent(token) : ""}` : null;
   let qr = null;
   if (primary) {
     try {

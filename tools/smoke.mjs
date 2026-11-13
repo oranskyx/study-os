@@ -418,6 +418,31 @@ console.log('\n=== 10. 局域网：手机扫码能打开 ===');
   ok('方法论可修改', (m2.data.find((x) => x.id === addM.data.id)?.version || 0) >= 1);
 }
 
+
+// ---------------------------------------------------------------- 局域网令牌（放最后，跑完保证关闭）
+{
+  const raw = (p, opt = {}) => fetch(BASE + p, {
+    method: opt.method || 'GET',
+    headers: opt.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: opt.body ? JSON.stringify(opt.body) : undefined,
+  });
+  const setTok = async (t, withTok) => raw('/api/security/token' + (withTok ? '?t=' + withTok : ''), {
+    method: 'POST', body: { token: t },
+  });
+
+  ok('令牌默认关闭', (await raw('/api/meta')).status === 200);
+  await setTok('smoke-tok-1');
+  ok('开启令牌后不带令牌被拒', (await raw('/api/meta')).status === 401);
+  ok('带 ?t= 可访问', (await raw('/api/meta?t=smoke-tok-1')).status === 200);
+  const cookieRes = await fetch(BASE + '/api/meta', { headers: { cookie: 'sos_t=smoke-tok-1' } });
+  ok('带 cookie 可访问（扫码后免参数）', cookieRes.status === 200);
+  const lan = await raw('/api/lan?t=smoke-tok-1').then((r) => r.json());
+  ok('二维码地址带令牌', String(lan.primary || '').includes('?t=smoke-tok-1'), lan.primary || '');
+  ok('不带令牌关不掉保护', (await setTok('', '')).status === 401);
+  ok('带令牌可以关闭', (await setTok('', 'smoke-tok-1')).status === 200);
+  ok('关闭后恢复放行', (await raw('/api/meta')).status === 200);
+}
+
 // 收尾：还原配置 + 把本套件造的题真删掉（走接口删是软删除，会留行）
 settingsGuard.restore();
 const removed = hardDeleteQuestions(createdIds);

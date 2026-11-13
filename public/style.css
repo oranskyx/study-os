@@ -679,6 +679,34 @@ textarea { min-height: 68px; line-height: 1.65; }
   padding: 13px 14px;
   margin-bottom: 10px;
 }
+/* 答题卡：选项状态（未涂/可见/已涂/黑笔/红笔） */
+.marks-box {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 10px;
+  margin: 0 0 12px;
+  background: #fffdf9;
+}
+.marks-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.marks-head select { width: auto; font-size: 13px; padding: 5px 8px; }
+.opt-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.opt-chip {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 4px; min-height: 52px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  background: var(--card); cursor: pointer; font: inherit;
+  transition: background .12s ease, border-color .12s ease;
+}
+.opt-chip b { font-size: 15px; }
+.opt-chip span { font-size: 11px; color: var(--muted); }
+.opt-chip.clear { background: var(--subtle); color: var(--muted); }
+.opt-chip.filled { background: #e9e5dc; border-color: var(--muted); }
+.opt-chip.black { background: var(--ink); border-color: var(--ink); color: #fff; }
+.opt-chip.black span { color: #d8d4cb; }
+.opt-chip.red { background: var(--accent); border-color: var(--accent); color: #fff; }
+.opt-chip.red span { color: #ffe9e2; }
+.marks-note { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin-top: 8px; }
+
 .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; margin: 0 0 10px; }
 .opt { font-size: 13px; color: var(--ink-2); background: var(--subtle); border-radius: var(--r-sm); padding: 6px 9px; }
 .opt b { color: var(--ink); margin-right: 6px; }

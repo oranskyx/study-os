@@ -1034,6 +1034,30 @@ const delta = (a, b) => {
 // ---------------------------------------------------------------- 视图：设置
 const SRC_LABEL = { ui: '界面', env: '环境变量', default: '默认', inherit: '继承识题', none: '未配置' };
 
+
+/** 局域网保护卡片：默认关闭，开着就等于「同 WiFi 都能读写」 */
+function lanCard(m) {
+  const on = Boolean(m?.security?.tokenRequired);
+  const state = on
+    ? '<span class="badge archived">已开启</span>'
+    : '<span class="badge key">未开启（局域网内任何人可访问）</span>';
+  return '' +
+    '<div class="card">' +
+    '<h2><span class="dot"></span>局域网保护</h2>' +
+    '<p class="small" style="margin:0 0 10px;line-height:1.8">' +
+    '默认这个服务对同一 WiFi 下的所有设备开放，任何设备都能读写你的数据。' +
+    '开一个访问令牌后，手机必须扫首页二维码（码里带令牌）才能进。' +
+    '</p>' +
+    '<div class="row between" style="padding:4px 0"><span class="small">当前状态</span>' + state + '</div>' +
+    '<div class="row" style="margin-top:10px;gap:6px">' +
+    '<button class="btn sm" data-act="token-gen">生成令牌并开启</button>' +
+    (on ? '<button class="btn sm ghost" data-act="token-off">关闭保护</button>' : '') +
+    '</div>' +
+    '<p class="muted" style="margin:8px 0 0;font-size:12px">' +
+    '开启后电脑上会自动带 cookie；手机要重新扫一次二维码。也可以在 .env 里设 ACCESS_TOKEN 固定令牌。' +
+    '</p></div>';
+}
+
 async function viewSettings() {
   if (!S.settings.loaded) {
     const d = await api('/api/settings');
@@ -1071,6 +1095,8 @@ async function viewSettings() {
         「获取模型列表」会去请求 <code>{Base URL}/models</code>。有的服务商不开放这个接口，那就直接手填模型名。
       </p>
     </div>
+
+    ${lanCard(m)}
 
     <div class="card">
       <h2><span class="dot"></span>数据与备份</h2>
@@ -1566,6 +1592,20 @@ document.addEventListener('click', async (e) => {
       } catch (err) {
         toast(`测试失败：${err.message}`, 'err');
       }
+      return render();
+    }
+
+    if (act === 'token-gen') {
+      const t = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 8);
+      await api('/api/security/token', { method: 'POST', body: { token: t } });
+      // 自己也要立刻带上令牌，否则下一次请求会被自己拦下
+      location.href = '/?t=' + encodeURIComponent(t);
+      return;
+    }
+
+    if (act === 'token-off') {
+      await api('/api/security/token', { method: 'POST', body: { token: '' } });
+      toast('已关闭局域网保护', 'ok');
       return render();
     }
 

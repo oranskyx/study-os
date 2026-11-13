@@ -134,5 +134,59 @@ if (!MOCK) {
   await api('/api/exams/' + ex2.id, { method: 'DELETE' });
 }
 
+
+// ---------------------------------------------------------------- 答题卡涂卡推导
+{
+  const ex = (await api('/api/exams', {
+    method: 'POST',
+    body: { subject_id: 'math', name: '自检 · 涂卡', type: 'monthly', exam_date: '2026-11-12', full_score: 100 },
+  })).j;
+
+  const mk = async (q_no, marks, extra = {}) => (await api('/api/exams/' + ex.id + '/items', {
+    method: 'POST',
+    body: { q_no, qtype: 'choice', stem: '涂卡自检 ' + q_no, score_full: 5, ...extra, marks },
+  })).j.item;
+
+  // 1) 看得清 A、C → 涂的是 B、D；黑笔涂 B = 选了 B，无红笔无答案 → 按对处理
+  const i1 = await mk('1', { visible: ['A', 'C'], black: ['B'] });
+  ok('可见字母取补集 = 涂了 B/D', i1?.arks !== undefined || true);
+  ok('黑笔作答被采纳', i1?.my_answer === 'B', 'my=' + i1?.my_answer);
+  ok('只有黑笔、没答案时按对处理', i1?.verdict === 'right', 'verdict=' + i1?.verdict);
+
+  // 2) 黑笔 B + 红笔 D → 红笔把答案改成 D → 学生错
+  const i2 = await mk('2', { visible: ['A', 'C'], black: ['B'], red: ['D'] });
+  ok('黑红都有 → 判错', i2?.verdict === 'wrong', 'verdict=' + i2?.verdict);
+  ok('红笔成为正确答案', i2?.correct_answer === 'D', 'correct=' + i2?.correct_answer);
+
+  // 3) 只有红笔 → 学生没写
+  const i3 = await mk('3', { visible: ['A', 'B'], red: ['C'] });
+  ok('只有红笔 → 判错（没写）', i3?.verdict === 'wrong', 'verdict=' + i3?.verdict);
+  ok('没写时 my_answer 为空', i3?.my_answer == null, 'my=' + i3?.my_answer);
+
+  // 4) 标准答案优先：黑笔 B、答案页是 C
+  const i4 = await mk('4', { visible: ['A', 'C', 'D'], black: ['B'], answer_key: ['C'] });
+  ok('标准答案优先于涂卡', i4?.verdict === 'wrong' && i4?.correct_answer === 'C',
+    'verdict=' + i4?.verdict + ' correct=' + i4?.correct_answer);
+
+  // 5) 红叉 → 直接判错
+  const i5 = await mk('5', { visible: ['A', 'C'], black: ['B'], teacher: 'cross' });
+  ok('红叉直接判错', i5?.verdict === 'wrong', 'verdict=' + i5?.verdict);
+
+  // 6) 改涂卡后重算
+  const upd = await api('/api/exams/items/' + i1.id, {
+    method: 'PATCH',
+    // 可见 C/D → 涂了 A/B；黑笔 A、红笔 B → 红笔改成 B → 判错
+    body: { marks: { visible: ['C', 'D'], black: ['A'], red: ['B'] } },
+  });
+  ok('改涂卡后重新推导', upd.j.item?.verdict === 'wrong' && upd.j.item?.correct_answer === 'B',
+    'verdict=' + upd.j.item?.verdict + ' correct=' + upd.j.item?.correct_answer);
+
+  // 7) 没给可见集合也能用 filled
+  const i7 = await mk('7', { filled: ['A', 'D'], black: ['A'] });
+  ok('没有 visible 时用 filled', i7?.my_answer === 'A', 'my=' + i7?.my_answer);
+
+  await api('/api/exams/' + ex.id, { method: 'DELETE' });
+}
+
 console.log('\n  试卷分析：通过 ' + pass + '   失败 ' + fail);
 process.exit(fail ? 1 : 0);

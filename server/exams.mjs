@@ -14,6 +14,7 @@ import { unlinkSync } from 'node:fs';
 import { all, get, run, insert, update, nowISO, UPLOAD_DIR } from './db.mjs';
 import { chat, imageToDataUrl, parseLooseJson } from './ai.mjs';
 import { examPageMessages } from './prompts.mjs';
+import { deriveMarks } from './logic.mjs';
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -52,7 +53,8 @@ function resolveKp(subjectId, rawName) {
 const EXAM_TYPES = { midterm: '期中', final: '期末', monthly: '月考', custom: '自定义' };
 
 /** 把一条识别结果规整成 exam_items 的行 */
-function toItemRow(examId, pageId, q) {
+function toItemRow(examId, pageId, qIn) {
+  let q = qIn;
   const options = q.options && typeof q.options === 'object' ? JSON.stringify(q.options) : null;
   const full = num(q.score_full);
   const got = num(q.score_got);
@@ -60,6 +62,19 @@ function toItemRow(examId, pageId, q) {
   if (!verdict || !['right', 'wrong', 'partial', 'unknown'].includes(verdict)) {
     if (got != null && full != null) verdict = got >= full ? 'right' : got <= 0 ? 'wrong' : 'partial';
     else verdict = 'unknown';
+  }
+  const marks = q.marks && typeof q.marks === 'object' ? q.marks : null;
+  let derived = null;
+  if (marks) {
+    derived = deriveMarks(marks);
+    q = {
+      ...q,
+      my_answer: q.my_answer || derived.my_answer,
+      correct_answer: q.correct_answer || derived.correct_answer,
+      verdict: q.verdict && q.verdict !== 'unknown' ? q.verdict : derived.verdict,
+    };
+    // 注意：下面 return 用的是上面那个局部 verdict，必须同步覆盖，否则推导白算
+    verdict = q.verdict;
   }
   return {
     exam_id: examId,
@@ -79,6 +94,7 @@ function toItemRow(examId, pageId, q) {
     score_got: got,
     verdict,
     handwriting: S(q.handwriting),
+    marks_json: marks ? JSON.stringify(marks) : null,
     source: 'ai',
     created_at: nowISO(),
     updated_at: nowISO(),
@@ -316,6 +332,16 @@ export function examsRouter() {
       if (k in b) patch[k] = S(b[k]);
     }
     for (const k of ['score_full', 'score_got', 'difficulty']) if (k in b) patch[k] = num(b[k]);
+    if ('marks' in b) {
+      const marks = b.marks || null;
+      patch.marks_json = marks ? JSON.stringify(marks) : null;
+      if (marks) {
+        const d = deriveMarks(marks);
+        patch.my_answer = d.my_answer;
+        patch.correct_answer = d.correct_answer;
+        patch.verdict = d.verdict;
+      }
+    }
     patch.updated_at = nowISO();
     update('exam_items', iid, patch);
     res.json({ ok: true, item: get('SELECT * FROM exam_items WHERE id=?', iid) });

@@ -621,3 +621,54 @@ export function longTermSeries(monthKey, n = 6) {
 }
 
 export const CONFIG = { ARCHIVE_AFTER_DAYS, SHEET_PER_DAY, ARCHIVE_MIN_REVIEWS, ARCHIVE_MIN_STREAK };
+/** 答题卡涂卡推导。
+ *  模型看到的是「能看清的字母」（没被涂掉的），涂了的 = 全集 - 可见。
+ *  black = 学生自己涂的；red = 老师用红笔补的正确答案（或批改标记）。
+ *  规则（按用户要求）：
+ *    - 有标准答案 → 永远以标准答案为准
+ *    - 只有黑笔 → 学生对；黑红都有 → 学生错（红笔改成了别的）
+ *    - 只有红笔 → 学生没写，红笔是正确答案
+ *    - 红框/打叉 → 直接判错
+ */
+export function deriveMarks(marks) {
+  const m = marks || {};
+  const letters = ['A', 'B', 'C', 'D'];
+  const norm = (arr) => [...new Set((arr || []).map((x) => String(x).toUpperCase()).filter((x) => letters.includes(x)))].sort();
+  const visible = norm(m.visible);
+  // 没给可见集合就不猜
+  const filled = visible.length ? letters.filter((x) => !visible.includes(x)) : norm(m.filled);
+  const black = norm(m.black).filter((x) => filled.includes(x));
+  const red = norm(m.red).filter((x) => filled.includes(x));
+  const answerKey = norm(m.answer_key);
+  const teacher = String(m.teacher || '').toLowerCase();
+
+  const myAnswer = black.length ? black.join('') : null;
+  let correct = answerKey.length ? answerKey.join('') : (red.length ? red.join('') : null);
+  let verdict = 'unknown';
+  let reason = '';
+
+  if (teacher === 'cross') { verdict = 'wrong'; reason = '老师打了叉'; }
+  else if (answerKey.length) {
+    if (!myAnswer) { verdict = 'wrong'; reason = '空着没答'; }
+    else { verdict = myAnswer === correct ? 'right' : 'wrong'; reason = myAnswer === correct ? '与标准答案一致' : '与标准答案不符'; }
+  } else if (myAnswer && red.length) {
+    verdict = myAnswer === correct ? 'right' : 'wrong';
+    reason = myAnswer === correct ? '黑红一致' : '红笔改成了 ' + correct;
+  } else if (myAnswer && !red.length) {
+    verdict = teacher === 'tick' ? 'right' : 'unknown';
+    reason = teacher === 'tick' ? '老师打了勾' : '只有黑笔，按对处理（无答案可对）';
+    if (!teacher) verdict = 'right';
+  } else if (!myAnswer && red.length) {
+    verdict = 'wrong';
+    reason = '没写，红笔是正确答案 ' + correct;
+  }
+
+  return {
+    visible, filled, black, red, answer_key: answerKey, teacher: teacher || null,
+    my_answer: myAnswer,
+    correct_answer: correct,
+    verdict,
+    reason,
+  };
+}
+

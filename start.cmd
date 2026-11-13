@@ -27,6 +27,24 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem --- Firewall: phones can only connect if the inbound port is allowed.  ---
+rem Asking here means the user sees the reason; the actual change still
+rem needs their UAC confirmation.
+node tools/firewall.mjs status > "%TEMP%\sos-fw.txt" 2>nul
+findstr /C:"absent" "%TEMP%\sos-fw.txt" >nul 2>nul
+if not errorlevel 1 goto fw_checked
+findstr /C:"no rule" "%TEMP%\sos-fw.txt" >nul 2>nul
+if errorlevel 1 goto fw_checked
+echo.
+echo  [LAN] Phones cannot reach this PC until the firewall allows port 7788.
+set /p ALLOW_FW="       Add the rule now? It will pop up a UAC prompt. [y/N] "
+if /i not "%ALLOW_FW%"=="y" goto fw_checked
+echo.
+echo       Requesting administrator permission...
+node tools/firewall.mjs add
+:fw_checked
+del "%TEMP%\sos-fw.txt" >nul 2>nul
+
 if not exist node_modules (
   echo.
   echo  First run - installing dependencies, please wait...

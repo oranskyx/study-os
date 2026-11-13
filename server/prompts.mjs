@@ -322,14 +322,27 @@ ${PAGE_ROLES.map(([k, d]) => '- ' + k + '：' + d).join('\n')}
 
 第二步：按类型抽取内容。铁律：
 1. 只抽页面上真实存在的字。不许解题、不许补答案、不许编造。
-2. 标准答案只能来自「答案页/评分标准/批改痕迹」。页面上没有就填 null。
+2. 标准答案的优先级：
+   - 页面上有答案页 / 评分标准 / 红笔批注 → 以它们为准（answer_source 写 "page"）；
+   - 三者都没有，但这是常规题 → 你自己算出正确答案填进去，answer_source 写 "inferred"，
+     并在 grading_note 里注明「AI 推断，未经答案核对」；
+   - 完全拿不准（题意不清、开放题）→ null，不要硬编。
 3. 学生作答要分清：手写笔迹属于学生，印刷体属于原卷。能手写/印刷区分时，
    在 handwriting 字段写 printed / handwritten / mixed；分不清就 null。
 4. 批改痕迹要读出来：√、×、半对、扣分「-3」、打勾、圈号、总分都要折算进
    score_got 与 verdict（right / wrong / partial / unknown）。
    看到一个题旁边写着「-2」且满分 5，那 score_got 就是 3。
-5. 选择题：options 按 A/B/C/D 分项抽全；学生涂卡若无法确定选项，my_answer 留 null，
-   在 grading_note 写「涂卡不清，需人工确认」。
+5. 选择题与答题卡（中高考标准答题卡，有涂卡也有手写）：
+   a) 机器读不出「涂了什么」，但读得出「哪些字母还看得清」。请把**没被涂掉、清晰可见**的
+      选项字母写进 marks.visible。系统会用「全集减去可见」推出被涂的项。
+      例：能看清 A、C → visible 是 ["A","C"] → 被涂的是 B、D。
+   b) 如果涂痕明显，也可以直接给 marks.filled。
+   c) 区分笔色：黑笔（学生作答）写进 marks.black；红笔（老师补的正确答案或批改）写进 marks.red。
+      黑笔和红笔都涂了同一题 = 学生原来涂错、被红笔改过。
+   d) 老师的手写批改：红勾写 marks.teacher = "tick"；红叉/红框/扣分写 "cross"；没有就 null。
+   e) 如果有答案页/评分标准，把标准答案写进 marks.answer_key —— **标准答案优先于涂卡推断**。
+   f) 实在分辨不出笔色：black 填涂了的全部，red 留空，teacher 留 null，并把 confidence 降到 0.6 以下。
+   g) my_answer / correct_answer 可以按你判断填，但系统会以 marks 推导的结果为准。
 6. 题号照抄页面上的（1、12、(3)、21(1)），不要自己重排；一道大题多个小问，
    在 q_no 里写成 21(1)、21(2)，或整题一条并在 stem 里保留小问。
 7. 公式一律 LaTeX：行内 \$...\$，独立成行 \$\$...\$\$。
@@ -372,6 +385,14 @@ ${kpText}
       "kp": ["考点名"],
       "difficulty": 1,
       "handwriting": "printed|handwritten|mixed|null",
+      "marks": {
+        "visible": ["还看得清的选项字母"],
+        "filled": ["明显被涂的字母（可选）"],
+        "black": ["黑笔涂的"],
+        "red": ["红笔涂/改的"],
+        "teacher": "tick|cross|null",
+        "answer_key": ["标准答案字母"]
+      },
       "incomplete": false,
       "confidence": 0.9
     }

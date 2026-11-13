@@ -240,6 +240,7 @@ CREATE TABLE IF NOT EXISTS exam_items (
   score_got      REAL,
   verdict        TEXT,                      -- right|wrong|partial|unknown
   handwriting    TEXT,                      -- printed|handwritten|mixed
+  marks_json     TEXT,                      -- 答题卡涂卡与笔迹：{visible,filled,black,red,teacher,answer_key}
   source         TEXT NOT NULL DEFAULT 'ai',-- ai|manual
   imported_qid   INTEGER,                   -- 已收进错题库的 questions.id
   created_at     TEXT NOT NULL,
@@ -249,6 +250,9 @@ CREATE INDEX IF NOT EXISTS ix_exam_item ON exam_items(exam_id);
 `);
 
 // 旧库补列：错题要能反查是哪次考试的哪道题
+const eiCols = new Set(db.prepare("PRAGMA table_info('exam_items')").all().map((c) => c.name));
+if (!eiCols.has('marks_json')) db.exec('ALTER TABLE exam_items ADD COLUMN marks_json TEXT');
+
 const qCols = new Set(db.prepare("PRAGMA table_info('questions')").all().map((c) => c.name));
 if (!qCols.has('exam_id')) db.exec('ALTER TABLE questions ADD COLUMN exam_id INTEGER');
 if (!qCols.has('exam_item_id')) db.exec('ALTER TABLE questions ADD COLUMN exam_item_id INTEGER');
