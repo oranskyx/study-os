@@ -359,6 +359,65 @@ console.log('\n=== 10. 局域网：手机扫码能打开 ===');
   }
 }
 
+
+// ---------------------------------------------------------------- 批次：错题库检索 / 聚合 / 重激活 / 导出 / 方法论
+{
+  // 先造两道题，保证聚合与搜索有东西可查（用本套件自己的题，不依赖别人）
+  const made = await call('/api/questions/bulk', {
+    method: 'POST',
+    body: { questions: [
+      { subject_id: 'math', stem: '聚合自检题：已知 $x>0$，求最小值', kp_name: '基本不等式', difficulty: 2 },
+      { subject_id: 'math', stem: '聚合自检题：判断奇偶性', kp_name: '函数的奇偶性', difficulty: 3 },
+    ] },
+  });
+  const madeIds = made.data.ids || [];
+  createdIds.push(...madeIds);
+  ok('批量造题成功（供检索/聚合用）', madeIds.length === 2, 'ids=' + madeIds.join(','));
+
+  const grp = await call('/api/questions/group?by=kp');
+  ok('按考点聚合有数据', Array.isArray(grp.data) && grp.data.length > 0, 'rows=' + (grp.data || []).length);
+  ok('聚合项带题数与重点数',
+    grp.data.length > 0 && 'n' in grp.data[0] && 'key_n' in grp.data[0],
+    JSON.stringify(grp.data[0] || {}));
+  const target = grp.data.find((x) => x.grp === '基本不等式');
+  ok('聚合能按考点名找到刚造的题', !!target && target.n >= 1, target ? 'n=' + target.n : '没找到');
+
+  const search = await call('/api/questions?q=' + encodeURIComponent('判断奇偶性'));
+  ok('搜索能按题干命中', Array.isArray(search.data) && search.data.some((q) => madeIds.includes(q.id)),
+    'hits=' + (search.data || []).length);
+
+  const stale = await call('/api/questions?stale=1');
+  ok('stale（逾期未复习）过滤可用', Array.isArray(stale.data),
+    'count=' + (stale.data || []).length);
+  ok('stale 结果里没有复习过的题',
+    (stale.data || []).every((q) => Number(q.review_count) === 0));
+
+  // 重新激活：先归档再激活
+  const one = madeIds[0];
+  await call('/api/questions/' + one, { method: 'PATCH', body: { status: 'archived' } });
+  const re = await call('/api/questions/' + one + '/reactivate', { method: 'POST', body: {} });
+  ok('归档题可以重新激活', re.data.question?.status === 'first',
+    'status=' + re.data.question?.status);
+  ok('重新激活会清掉归档时间与原因',
+    re.data.question?.archived_at == null && re.data.question?.archive_reason == null);
+
+  // 导出
+  const dump = await call('/api/export');
+  ok('导出返回题目数组', Array.isArray(dump.data.questions));
+  ok('导出包含考试数据', Array.isArray(dump.data.exams));
+  ok('导出不含 API key 明文', !JSON.stringify(dump.data).includes('api_key'));
+
+  // 方法论
+  const m0 = await call('/api/methods');
+  const addM = await call('/api/methods', { method: 'POST', body: { title: '自检方法论', body: '一句话原则' } });
+  ok('新增方法论', addM.status === 200 && addM.data.id > 0);
+  const m1 = await call('/api/methods');
+  ok('方法论列表增加了 1 条', m1.data.length === m0.data.length + 1);
+  await call('/api/methods/' + addM.data.id, { method: 'PATCH', body: { title: '自检方法论（改）', body: '两句话' } });
+  const m2 = await call('/api/methods');
+  ok('方法论可修改', (m2.data.find((x) => x.id === addM.data.id)?.version || 0) >= 1);
+}
+
 // 收尾：还原配置 + 把本套件造的题真删掉（走接口删是软删除，会留行）
 settingsGuard.restore();
 const removed = hardDeleteQuestions(createdIds);

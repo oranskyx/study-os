@@ -185,9 +185,10 @@ function toast(msg, kind = 'info') {
 const S = {
   meta: null,
   cap: { subject: 'math', busy: null, drafts: [], page: null, error: null, note: '' },
-  bank: { status: 'all', q: '' },
+  bank: { status: 'all', q: '', mode: 'list' },
   sheet: { results: {}, busy: false },
   report: { mode: 'week', busy: false },
+  methodEdit: null,
   settings: {
     loaded: false,
     presets: [],
@@ -199,6 +200,9 @@ const S = {
     models: { vision: [], text: [] },
     busy: null,
     note: null,
+  },
+  report: {
+    busy: null,
   },
 };
 
@@ -280,6 +284,22 @@ async function viewHome() {
       </div>
     </div>
   `);
+
+  if (m.staleNever > 0) {
+    const stale = await api('/api/questions?stale=1&limit=5');
+    html.push(`<div class="card" style="margin-top:12px">
+      <h2><span class="dot"></span>一直没排上队的题（${m.staleNever} 道）</h2>
+      <p class="small" style="margin:0 0 10px;line-height:1.8">
+        这些题早就该复习了，但一次都没轮到——通常是复习单容量不够。
+        <strong>要么这几周少录点新题，要么把每天的量调大。</strong>
+      </p>
+      ${stale.map((x) => `<div class="row between" data-act="q-open" data-id="${x.id}"
+          style="padding:7px 0;border-bottom:1px solid var(--line);cursor:pointer;gap:8px">
+          <span class="small" style="flex:1;min-width:0">#${x.id} ${esc(x.kp_name || '未标注')} · ${esc((x.stem || '').replace(/\s+/g, ' ').slice(0, 30))}</span>
+          <span class="badge">${x.subject_id}</span>
+        </div>`).join('')}
+    </div>`);
+  }
 
   if (m.dueNow > 0) {
     html.push(`<div class="hint warn">
@@ -517,8 +537,16 @@ function draftCard(d, i) {
 // ---------------------------------------------------------------- 视图：错题库
 async function viewBank() {
   const subj = S.bank.subject || 'all';
-  const query = `/api/questions?status=${encodeURIComponent(S.bank.status)}${subj !== 'all' ? `&subject=${encodeURIComponent(subj)}` : ''}`;
-  const list = await api(query);
+  const kw = (S.bank.q || '').trim();
+  const mode = S.bank.mode || 'list';
+  const qs = [];
+  if (S.bank.status && S.bank.status !== 'all') qs.push('status=' + encodeURIComponent(S.bank.status));
+  if (subj !== 'all') qs.push('subject=' + encodeURIComponent(subj));
+  if (kw) qs.push('q=' + encodeURIComponent(kw));
+  const list = mode === 'group' ? [] : await api('/api/questions?' + qs.join('&'));
+  const groups = mode === 'group'
+    ? await api('/api/questions/group?by=kp' + (subj !== 'all' ? '&subject=' + encodeURIComponent(subj) : ''))
+    : [];
   const filters = [
     ['all', '全部'],
     ['first', '头次错'],
@@ -544,10 +572,32 @@ async function viewBank() {
           )
           .join('')}
         <span class="spacer" style="flex:1"></span>
-        <span class="count">${list.length}</span>
+        <button class="seg-btn ${mode === 'list' ? 'on' : ''}" data-act="bank-mode" data-mode="list">列表</button>
+        <button class="seg-btn ${mode === 'group' ? 'on' : ''}" data-act="bank-mode" data-mode="group">按考点</button>
+        <span class="count">${mode === 'group' ? groups.length : list.length}</span>
+      </div>
+      <div class="row" style="margin-top:8px;gap:6px">
+        <input id="bankSearch" placeholder="搜题干或错因…" value="${esc(kw)}" style="flex:1">
+        ${kw ? '<button class="btn sm ghost" data-act="bank-clear">清除</button>' : ''}
       </div>
     </div>
   `];
+
+  if (mode === 'group') {
+    if (!groups.length) {
+      h.push('<div class="empty">这个范围内还没有题。</div>');
+      return h.join('');
+    }
+    h.push('<div class="bank-scroll"><div class="grp-list">');
+    h.push(groups.map((g) => `
+      <div class="grp-row" data-act="bank-kp" data-kp="${esc(g.grp)}">
+        <span class="gl">${esc(g.grp)}</span>
+        <span class="gb"><i style="width:${Math.max(4, Math.round((g.n / Math.max(...groups.map((x) => x.n))) * 100))}%"></i></span>
+        <span class="gn">${g.n} 道${g.key_n ? ' · 重点 ' + g.key_n : ''}</span>
+      </div>`).join(''));
+    h.push('</div></div>');
+    return h.join('');
+  }
 
   if (!list.length) {
     h.push('<div class="empty">这里还是空的。先拍一页错题本。</div>');
@@ -664,6 +714,7 @@ async function viewQuestion(id) {
         <button class="btn sm" data-act="diagnose" data-id="${q.id}">AI 深挖错因</button>
         <button class="btn sm" data-act="variants" data-id="${q.id}">出变式题</button>
         <button class="btn sm ghost" data-act="edit-q" data-id="${q.id}">${S.editQ === q.id ? '收起编辑' : '编辑'}</button>
+        ${q.status === 'archived' ? `<button class="btn sm" data-act="reactivate" data-id="${q.id}">重新激活（放回复习）</button>` : ''}
       </div>
       ${S.editQ === q.id ? editQuestionForm(q) : `
       ${panel('我的答案', q.my_answer)}
@@ -699,6 +750,11 @@ async function viewQuestion(id) {
             ${v.tier ? `<span class="badge d">${esc(v.tier)}</span>` : ''}
             <span class="badge ${v.source === 'textbook' ? 'd' : 'first'}">${v.source === 'textbook' ? '教辅' : 'AI'}</span>
             ${v.ref ? `<span class="badge d">${esc(v.ref).slice(0, 30)}</span>` : ''}
+            ${v.verdict ? `<span class="badge ${v.verdict === 'good' ? 'archived' : 'key'}">${({ good: '可用', too_hard: '太难', too_easy: '太简单', wrong: '有错' })[v.verdict] || v.verdict}</span>` : ''}
+          </div>
+          <div class="row" style="gap:5px;margin:6px 0 0">
+            ${[['good', '可用'], ['too_hard', '太难'], ['too_easy', '太简单'], ['wrong', '有错']].map(([k, t]) =>
+              `<button class="seg-btn ${v.verdict === k ? 'on' : ''}" data-act="variant-verdict" data-id="${v.id}" data-v="${k}">${t}</button>`).join('')}
           </div>
           <div class="stem">${richInline(v.stem)}</div>
           <details style="margin-top:7px">
@@ -831,6 +887,45 @@ async function viewSheet() {
   return h.join('');
 }
 
+// ---------------------------------------------------------------- 视图：方法论
+async function viewMethods() {
+  const list = await api('/api/methods');
+  const h = [];
+  h.push(`<div class="row between" style="margin-bottom:12px">
+    <div>
+      <h2 style="margin:0;font-size:16px">方法论</h2>
+      <p class="muted" style="margin:4px 0 0">周报/月报里沉淀下来的做法，复习前扫一眼。</p>
+    </div>
+    <button class="btn sm" data-act="method-new">+ 新增</button>
+  </div>`);
+
+  if (!list.length) {
+    h.push('<div class="card"><div class="empty">还没有方法论。<br>生成周报时，模型会把可复用的做法存到这里。</div></div>');
+    return h.join('');
+  }
+
+  for (const m of list) {
+    h.push(`<div class="card">
+      <div class="row between" style="align-items:baseline;gap:8px">
+        <h2 style="margin:0"><span class="dot"></span>${esc(m.title)}</h2>
+        <span class="muted" style="font-size:12px">v${m.version} · ${fmtDay(m.updated_at)}</span>
+      </div>
+      ${m.kp_name ? `<div style="margin:6px 0 4px"><span class="badge d">${esc(m.kp_name)}</span></div>` : ''}
+      <div class="md" style="margin-top:8px">${richBlock(m.body)}</div>
+      <div class="row" style="margin-top:10px;gap:6px">
+        <button class="btn sm ghost" data-act="method-edit" data-id="${m.id}">改</button>
+      </div>
+      ${S.methodEdit === m.id ? `
+        <div class="edit-form" style="margin-top:10px">
+          <label class="field"><span>标题</span><input id="mTitle" value="${esc(m.title)}"></label>
+          <label class="field"><span>正文（Markdown）</span><textarea id="mBody" rows="6">${esc(m.body)}</textarea></label>
+          <button class="btn primary sm" data-act="method-save" data-id="${m.id}">保存</button>
+        </div>` : ''}
+    </div>`);
+  }
+  return h.join('');
+}
+
 // ---------------------------------------------------------------- 视图：周报 / 月报
 async function viewReport() {
   const monthMode = (S.report.mode || 'week') === 'month';
@@ -885,7 +980,8 @@ async function viewReport() {
     </div>`);
   }
 
-  h.push(`<div class="row" style="margin-bottom:12px">
+  h.push(`<div class="row" style="margin-bottom:12px;gap:8px">
+    <button class="btn" data-act="nav" data-to="methods">方法论</button>
     <button class="btn primary" data-act="report-gen" ${S.report.busy ? 'disabled' : ''}>
       ${
         S.report.busy
@@ -958,6 +1054,20 @@ async function viewSettings() {
       </div>
       <p class="muted" style="margin:9px 0 0;font-size:12px">
         「获取模型列表」会去请求 <code>{Base URL}/models</code>。有的服务商不开放这个接口，那就直接手填模型名。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2><span class="dot"></span>数据与备份</h2>
+      <p class="small" style="margin:0 0 10px;line-height:1.8">
+        所有数据都在本机 <code>data/</code> 目录：<code>study.db</code>（题库、计划、配置）+ <code>uploads/</code>（照片）。
+        最稳的备份是停服务后整个文件夹复制走；不想停服务就用下面这个导出。
+      </p>
+      <div class="row">
+        <a class="btn" href="/api/export" download>导出全部数据（JSON）</a>
+      </div>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">
+        导出内容包含题目、作答记录、变式、复习单、方法论、考试与成绩；<b>不包含 API key</b>（key 在库里，不在导出文件里）。
       </p>
     </div>
 
@@ -1090,6 +1200,7 @@ async function render() {
     else if (name === 'q') html = await viewQuestion(Number(arg));
     else if (name === 'sheet') html = await viewSheet();
     else if (name === 'report') html = await viewReport();
+    else if (name === 'methods') html = await viewMethods();
     else if (name === 'settings') html = await viewSettings();
     else html = await viewHome();
 
@@ -1147,6 +1258,23 @@ document.addEventListener('click', async (e) => {
       S.meta = null;
       toast(`已存入 ${r.created} 道错题`, 'ok');
       return go('bank');
+    }
+
+    if (act === 'bank-mode') {
+      S.bank.mode = el.dataset.mode;
+      return render();
+    }
+
+    if (act === 'bank-clear') {
+      S.bank.q = '';
+      return render();
+    }
+
+    if (act === 'bank-kp') {
+      S.bank.q = el.dataset.kp === '未标注' ? '' : el.dataset.kp;
+      S.bank.mode = 'list';
+      S.bank.status = 'all';
+      return render();
     }
 
     if (act === 'bank-filter') {
@@ -1229,6 +1357,12 @@ document.addEventListener('click', async (e) => {
       return render();
     }
 
+    if (act === 'reactivate') {
+      await api('/api/questions/' + el.dataset.id + '/reactivate', { method: 'POST', body: {} });
+      toast('已放回复习队列', 'ok');
+      return render();
+    }
+
     if (act === 'edit-q') {
       const id = Number(el.dataset.id);
       S.editQ = S.editQ === id ? null : id;
@@ -1259,6 +1393,12 @@ document.addEventListener('click', async (e) => {
       el.innerHTML = '<span class="spin dark"></span> 分析中';
       await api(`/api/questions/${el.dataset.id}/diagnose`, { method: 'POST' });
       toast('归因已补全', 'ok');
+      return render();
+    }
+
+    if (act === 'variant-verdict') {
+      await api('/api/variants/' + el.dataset.id, { method: 'PATCH', body: { verdict: el.dataset.v } });
+      toast('已标记', 'ok');
       return render();
     }
 
@@ -1317,6 +1457,31 @@ document.addEventListener('click', async (e) => {
 
     if (act === 'sheet-print') {
       return window.open(`/print.html?id=${el.dataset.id}`, '_blank');
+    }
+
+    if (act === 'method-edit') {
+      S.methodEdit = S.methodEdit === Number(el.dataset.id) ? null : Number(el.dataset.id);
+      return render();
+    }
+
+    if (act === 'method-save') {
+      const title = document.getElementById('mTitle')?.value.trim();
+      const body = document.getElementById('mBody')?.value.trim();
+      if (!title || !body) return toast('标题和正文都要填', 'warn');
+      await api('/api/methods/' + el.dataset.id, { method: 'PATCH', body: { title, body } });
+      S.methodEdit = null;
+      toast('已保存', 'ok');
+      return render();
+    }
+
+    if (act === 'method-new') {
+      const title = prompt('方法论标题');
+      if (!title) return;
+      const body = prompt('正文（Markdown）');
+      if (!body) return;
+      await api('/api/methods', { method: 'POST', body: { title, body } });
+      toast('已添加', 'ok');
+      return render();
     }
 
     if (act === 'report-mode') {
@@ -1795,6 +1960,21 @@ async function handlePhoto(file) {
 
 // ---------------------------------------------------------------- 启动
 window.addEventListener('hashchange', render);
+
+// 错题库搜索：输入防抖，不打断打字
+let bankTimer = null;
+document.addEventListener('input', (e) => {
+  if (e.target.id !== 'bankSearch') return;
+  const box = e.target;
+  clearTimeout(bankTimer);
+  bankTimer = setTimeout(() => {
+    S.bank.q = box.value;
+    render().then(() => {
+      const el = document.getElementById('bankSearch');
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    });
+  }, 260);
+});
 if (window.__exams) window.__exams.bindEvents();
 
 (async function boot() {
