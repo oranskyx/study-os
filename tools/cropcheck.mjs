@@ -1,28 +1,25 @@
 // 裁切编辑器对齐检查：裁切框必须和图片像素级重合，旋转/缩放后也不能偏。
 // 用法：先起服务 + 本地 mock，然后 node tools/cropcheck.mjs [BASE]
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { guardSettings } from './settings-guard.mjs';
+import { launchEdge, sleep } from './cdp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.argv[2] || process.env.BASE || 'http://127.0.0.1:7788';
 const MOCK = process.env.MOCK || 'http://127.0.0.1:7799/v1';
 const PHOTO = path.join(ROOT, 'data', '_crop_test.jpg');
-const PORT = 9800 + Math.floor(Math.random() * 90);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const check = (n, ok, extra = '') => results.push({ n, ok: Boolean(ok), extra });
 
 if (!existsSync(PHOTO)) {
-  console.error(`缺少测试图片：${PHOTO}`);
+  console.error('缺少测试图片：' + PHOTO);
   process.exit(1);
 }
 
 const guard = guardSettings();
-await fetch(`${BASE}/api/settings`, {
+await fetch(BASE + '/api/settings', {
   method: 'PUT',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -31,50 +28,16 @@ await fetch(`${BASE}/api/settings`, {
   }),
 });
 
-const EDGE = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-].find((p) => existsSync(p));
-const profile = mkdtempSync(path.join(tmpdir(), 'crop-'));
-const child = spawn(EDGE, [
-  '--headless=new', '--disable-gpu', '--no-first-run',
-  `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
-  '--window-size=390,844', 'about:blank',
-], { stdio: 'ignore' });
-const cleanup = () => {
-  try { child.kill(); } catch { /* 已退出 */ }
-  try { rmSync(profile, { recursive: true, force: true }); } catch { /* 占用 */ }
-};
-process.on('exit', () => { cleanup(); guard.restore(); });
-
-for (let i = 0; i < 80; i++) {
-  try { if ((await fetch(`http://127.0.0.1:${PORT}/json/version`)).ok) break; } catch { /* 等 */ }
-  await sleep(250);
+let cdp;
+try {
+  cdp = await launchEdge({ width: 390, height: 844, deviceScaleFactor: 3 });
+} catch (e) {
+  if (e.code === 'NO_EDGE') { console.error('没找到 Edge，跳过（退出码 2）'); process.exit(2); }
+  console.error(e.message);
+  process.exit(1);
 }
-const list = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
-const ws = new WebSocket(list.find((t) => t.type === 'page').webSocketDebuggerUrl);
-await new Promise((res) => ws.addEventListener('open', res, { once: true }));
-
-let seq = 0;
-const pending = new Map();
-ws.addEventListener('message', (ev) => {
-  const m = JSON.parse(ev.data);
-  if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
-});
-const send = (method, params = {}) =>
-  new Promise((res) => { const id = ++seq; pending.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
-const evaluate = async (expr) => {
-  const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-  return r.result?.result?.value;
-};
-const waitUntil = async (expr, timeout = 20000) => {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    try { if (await evaluate(expr)) return true; } catch { /* 加载中 */ }
-    await sleep(200);
-  }
-  return false;
-};
+const { send, evaluate, waitUntil } = cdp;
+process.on('exit', () => guard.restore());
 
 /** 量一次：图片矩形 vs 裁切框矩形，返回偏差 */
 const measure = () => evaluate(`(() => {
@@ -157,8 +120,7 @@ check('缩小后能重新拉回整张图',
   m4 && m4.full,
   m4 ? `框 ${m4.box} / 图 ${m4.img}` : '量不到');
 
-ws.close();
-cleanup();
+cdp.close();
 guard.restore();
 
 console.log('');

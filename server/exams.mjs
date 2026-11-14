@@ -15,6 +15,7 @@ import { all, get, run, insert, update, nowISO, UPLOAD_DIR } from './db.mjs';
 import { chat, imageToDataUrl, parseLooseJson } from './ai.mjs';
 import { examPageMessages } from './prompts.mjs';
 import { deriveMarks } from './logic.mjs';
+import { S, num, kpList, resolveKp } from './util.mjs';
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -31,24 +32,7 @@ const upload = multer({
   },
 });
 
-const S = (v) => (v === undefined || v === null ? null : String(v).trim() || null);
-const num = (v) => (v === undefined || v === null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-
-function kpList(subjectId) {
-  return all('SELECT id, chapter, name FROM kps WHERE subject_id=? ORDER BY id', subjectId || 'math');
-}
-
-function resolveKp(subjectId, rawName) {
-  if (!rawName) return { kp_id: null, kp_name: null };
-  const name = String(rawName).trim();
-  if (!name) return { kp_id: null, kp_name: null };
-  const exact = get('SELECT id, name FROM kps WHERE subject_id=? AND name=?', subjectId, name);
-  if (exact) return { kp_id: exact.id, kp_name: exact.name };
-  const hit = kpList(subjectId).find((k) => k.name.includes(name) || name.includes(k.name));
-  if (hit) return { kp_id: hit.id, kp_name: hit.name };
-  return { kp_id: null, kp_name: name };
-}
 
 const EXAM_TYPES = { midterm: '期中', final: '期末', monthly: '月考', custom: '自定义' };
 

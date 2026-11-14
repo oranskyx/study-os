@@ -45,6 +45,7 @@
     "test:exam": "node tools/examtest.mjs",
     "test:mobile": "node tools/mobilecheck.mjs",
     "design": "node tools/designcheck.mjs",
+    "stats": "node tools/size.mjs",
     "test": "node tools/test-all.mjs",
     "test:all": "node tools/test-all.mjs"
   },

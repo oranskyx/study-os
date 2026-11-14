@@ -21,6 +21,7 @@ import {
   extractMessages, diagnoseMessages, variantMessages, weeklyMessages, monthlyMessages, solutionMessages,
 } from './prompts.mjs';
 import { examsRouter } from './exams.mjs';
+import { S, num, kpList, resolveKp } from './util.mjs';
 import {
   isoWeek, isoDate, weekRange, weeklyStats, weekDigest,
   buildSheet, sheetDetail, fillSheet, recordAttempt,
@@ -58,23 +59,7 @@ const upload = multer({
 // ---------------------------------------------------------------- 小工具
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-function kpList(subjectId = 'math') {
-  return all('SELECT id, chapter, name FROM kps WHERE subject_id=? ORDER BY id', subjectId);
-}
 
-function resolveKp(subjectId, rawName) {
-  if (!rawName) return { kp_id: null, kp_name: null };
-  const name = String(rawName).trim();
-  if (!name) return { kp_id: null, kp_name: null };
-  const exact = get('SELECT id, name FROM kps WHERE subject_id=? AND name=?', subjectId, name);
-  if (exact) return { kp_id: exact.id, kp_name: exact.name };
-  const kps = kpList(subjectId);
-  const hit = kps.find((k) => k.name.includes(name) || name.includes(k.name));
-  if (hit) return { kp_id: hit.id, kp_name: hit.name };
-  return { kp_id: null, kp_name: name }; // 保留原词，学生可后续补建
-}
-
-const S = (v) => (v === undefined || v === null ? null : String(v).trim() || null);
 
 // ---------------------------------------------------------------- 访问令牌（局域网保护，默认关闭）
 const TOKEN_KEY = 'access_token';
