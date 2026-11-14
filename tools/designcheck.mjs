@@ -1,13 +1,12 @@
 // 设计体检：用无头 Edge + CDP 量真实排版与配色，并输出截图。
 // 目的：在没有"眼睛"的情况下，用可核对的数据判断页面是否可读、是否溢出、对比度是否达标。
 //
-// 用法：node tools/designcheck.mjs [BASE] [--routes=/,/bank] [--widths=390,1280]
+// 用法：node tools/designcheck.mjs [BASE] [--routes=/,/bank] [--widths=390,1280] [--act=CSS选择器]
 // 依赖服务已启动（默认 http://127.0.0.1:7790），截图写到 data/_shots/design/。
 
-import { spawn } from 'node:child_process';
-import { existsSync, rmSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { launchEdge, sleep } from './cdp.mjs';
 
 const BASE = (process.argv[2] && !process.argv[2].startsWith('--')) ? process.argv[2] : 'http://127.0.0.1:7790';
 const argOf = (k, d) => {
@@ -19,49 +18,15 @@ const WIDTHS = argOf('widths', '390,1280').split(',').map(Number);
 const OUT = path.resolve('data/_shots/design');
 mkdirSync(OUT, { recursive: true });
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const EDGE = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find((p) => existsSync(p));
-if (!EDGE) { console.error('没找到 Edge，跳过（退出码 2）'); process.exit(2); }
-
-const PORT = 9400 + Math.floor(Math.random() * 300);
-const profile = mkdtempSync(path.join(tmpdir(), 'dsh-design-'));
-const child = spawn(EDGE, [
-  '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-  '--disable-extensions', '--force-device-scale-factor=2',
-  '--remote-debugging-port=' + PORT, '--user-data-dir=' + profile, 'about:blank',
-], { stdio: 'ignore' });
-const cleanup = () => { try { child.kill(); } catch {} try { rmSync(profile, { recursive: true, force: true }); } catch {} };
-process.on('exit', cleanup);
-
-async function waitCdp(timeout = 20000) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    try { if ((await fetch('http://127.0.0.1:' + PORT + '/json/version')).ok) return true; } catch {}
-    await sleep(250);
-  }
-  return false;
+let cdp;
+try {
+  cdp = await launchEdge({ width: 390, height: 844, deviceScaleFactor: 2 });
+} catch (e) {
+  if (e.code === 'NO_EDGE') { console.error('没找到 Edge，跳过（退出码 2）'); process.exit(2); }
+  console.error(e.message);
+  process.exit(1);
 }
-if (!(await waitCdp())) { console.error('Edge DevTools 起不来'); process.exit(1); }
-
-const targets = await fetch('http://127.0.0.1:' + PORT + '/json/list').then((r) => r.json());
-const page = targets.find((t) => t.type === 'page');
-const ws = new WebSocket(page.webSocketDebuggerUrl);
-await new Promise((res, rej) => { ws.addEventListener('open', res, { once: true }); ws.addEventListener('error', rej, { once: true }); });
-
-let seq = 0;
-const pending = new Map();
-ws.addEventListener('message', (ev) => {
-  const msg = JSON.parse(ev.data);
-  if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
-});
-const send = (method, params = {}) => new Promise((resolve, reject) => {
-  const id = ++seq;
-  pending.set(id, (m) => (m.error ? reject(new Error(method + ': ' + m.error.message)) : resolve(m.result)));
-  ws.send(JSON.stringify({ id, method, params }));
-});
-
-await send('Page.enable');
-await send('Runtime.enable');
+const { send } = cdp;
 
 const METRICS = `(() => {
   const rgb = (s) => { const m = String(s).match(/[\d.]+/g); return m ? m.map(Number) : null; };

@@ -3,124 +3,21 @@
 //
 // 用法：先起服务，然后 node tools/mobilecheck.mjs [URL]
 // 默认量本机局域网 IP，顺便证明「手机走局域网地址能打开」这条链路是通的。
+import { launchEdge, sleep } from './cdp.mjs';
 
-import { spawn } from 'node:child_process';
-import { existsSync, rmSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
-const PORT = 9222 + Math.floor(Math.random() * 200);
 const results = [];
 const check = (name, ok, extra = '') => results.push({ name, ok: Boolean(ok), extra });
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const EDGE_CANDIDATES = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-];
-const edgePath = EDGE_CANDIDATES.find((p) => existsSync(p));
-if (!edgePath) {
+let cdp;
+try {
+  cdp = await launchEdge({ width: 390, height: 844, deviceScaleFactor: 3 });
+} catch (e) {
   // 用 2 表示「跳过」，别用 0 —— 否则这一套一项没跑也显示"通过"，是假绿灯。
-  console.error('没找到 Edge，无法做手机端检查（跳过，退出码 2）');
-  process.exit(2);
-}
-
-// ---------------------------------------------------------------- 起浏览器
-const profile = mkdtempSync(path.join(tmpdir(), 'dsh-mobile-'));
-const child = spawn(
-  edgePath,
-  [
-    '--headless=new',
-    '--disable-gpu',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-extensions',
-    `--remote-debugging-port=${PORT}`,
-    `--user-data-dir=${profile}`,
-    'about:blank',
-  ],
-  { stdio: 'ignore', detached: false }
-);
-
-const cleanup = () => {
-  try { child.kill(); } catch { /* 已退出 */ }
-  try { rmSync(profile, { recursive: true, force: true }); } catch { /* 占用中就算了 */ }
-};
-process.on('exit', cleanup);
-
-async function waitCdp(timeout = 20000) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    try {
-      const r = await fetch(`http://127.0.0.1:${PORT}/json/version`);
-      if (r.ok) return true;
-    } catch { /* 还没起来 */ }
-    await sleep(250);
-  }
-  return false;
-}
-
-if (!(await waitCdp())) {
-  console.error('Edge DevTools 起不来');
+  if (e.code === 'NO_EDGE') { console.error('没找到 Edge，无法做手机端检查（跳过，退出码 2）'); process.exit(2); }
+  console.error(e.message);
   process.exit(1);
 }
-
-// ---------------------------------------------------------------- CDP 客户端
-const targets = await fetch(`http://127.0.0.1:${PORT}/json/list`).then((r) => r.json());
-const page = targets.find((t) => t.type === 'page');
-if (!page) {
-  console.error('没有可用的页面 target');
-  process.exit(1);
-}
-
-const ws = new WebSocket(page.webSocketDebuggerUrl);
-await new Promise((res, rej) => {
-  ws.addEventListener('open', res, { once: true });
-  ws.addEventListener('error', rej, { once: true });
-});
-
-let seq = 0;
-const pending = new Map();
-const events = [];
-ws.addEventListener('message', (ev) => {
-  const msg = JSON.parse(ev.data);
-  if (msg.id && pending.has(msg.id)) {
-    pending.get(msg.id)(msg);
-    pending.delete(msg.id);
-  } else if (msg.method) {
-    events.push(msg.method);
-  }
-});
-const send = (method, params = {}) =>
-  new Promise((res) => {
-    const id = ++seq;
-    pending.set(id, res);
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-
-const evaluate = async (expression) => {
-  const r = await send('Runtime.evaluate', {
-    expression,
-    returnByValue: true,
-    awaitPromise: true,
-  });
-  if (r.result?.exceptionDetails) {
-    throw new Error(r.result.exceptionDetails.text || 'evaluate 失败');
-  }
-  return r.result?.result?.value;
-};
-
-async function waitUntil(expr, timeout = 15000) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    try { if (await evaluate(expr)) return true; } catch { /* 还在加载 */ }
-    await sleep(150);
-  }
-  return false;
-}
-
-await send('Page.enable');
-await send('Runtime.enable');
+const { send, evaluate, waitUntil } = cdp;
 
 // ---------------------------------------------------------------- 视口实测
 const VIEWPORTS = [
@@ -131,6 +28,8 @@ const VIEWPORTS = [
 
 const BASE = process.argv[2] || process.env.BASE || 'http://127.0.0.1:7788';
 
+await send('Page.enable');
+await send('Runtime.enable');
 const MEASURE = `(() => {
   const vw = window.innerWidth;
   const de = document.documentElement;
@@ -193,8 +92,6 @@ const MEASURE = `(() => {
     title: document.querySelector('header.top h1')?.textContent || '',
   };
 })()`;
-
-console.log(`\n目标地址：${BASE}\n`);
 
 for (const vp of VIEWPORTS) {
   console.log(`── ${vp.name} ──`);
@@ -346,6 +243,5 @@ console.log(`\n${'='.repeat(46)}`);
 console.log(`  手机端检查：通过 ${results.length - failed}   失败 ${failed}`);
 console.log('='.repeat(46) + '\n');
 
-ws.close();
-cleanup();
+cdp.close();
 process.exit(failed ? 1 : 0);

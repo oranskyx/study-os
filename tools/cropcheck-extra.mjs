@@ -1,62 +1,25 @@
-// 裁剪编辑器新增能力自检：缩放、重新框选、边把手、双指
-// 复用 cropcheck 的 CDP 思路，但只看新功能是否可用。
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+// 裁剪编辑器能力自检：缩放、重新框选、边把手、双指。
+// 用法：node tools/cropcheck-extra.mjs [BASE]（需要 data/_crop_test.jpg 与服务已启动）
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchEdge, sleep } from './cdp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.argv[2] || process.env.BASE || 'http://127.0.0.1:7788';
 const PHOTO = path.join(ROOT, 'data', '_crop_test.jpg');
-const PORT = 9900 + Math.floor(Math.random() * 90);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const check = (n, ok, extra = '') => results.push({ n, ok: Boolean(ok), extra });
 
-const EDGE = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-].find((p) => existsSync(p));
-const profile = mkdtempSync(path.join(tmpdir(), 'cropx-'));
-const child = spawn(EDGE, [
-  '--headless=new', '--disable-gpu', '--no-first-run',
-  '--remote-debugging-port=' + PORT, '--user-data-dir=' + profile,
-  '--window-size=390,844', 'about:blank',
-], { stdio: 'ignore' });
-process.on('exit', () => { try { child.kill(); } catch {} try { rmSync(profile, { recursive: true, force: true }); } catch {} });
-
-for (let i = 0; i < 80; i++) {
-  try { if ((await fetch('http://127.0.0.1:' + PORT + '/json/version')).ok) break; } catch {}
-  await sleep(250);
+let cdp;
+try {
+  cdp = await launchEdge({ width: 390, height: 844, deviceScaleFactor: 3 });
+} catch (e) {
+  if (e.code === 'NO_EDGE') { console.error('没找到 Edge，跳过（退出码 2）'); process.exit(2); }
+  console.error(e.message);
+  process.exit(1);
 }
-const list = await fetch('http://127.0.0.1:' + PORT + '/json/list').then((r) => r.json());
-const ws = new WebSocket(list.find((t) => t.type === 'page').webSocketDebuggerUrl);
-await new Promise((res) => ws.addEventListener('open', res, { once: true }));
-let seq = 0;
-const pending = new Map();
-ws.addEventListener('message', (ev) => {
-  const m = JSON.parse(ev.data);
-  if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
-});
-const send = (method, params = {}) => new Promise((res) => { const id = ++seq; pending.set(id, res); ws.send(JSON.stringify({ id, method, params })); });
-const evaluate = async (expr) => {
-  const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
-  return r.result?.result?.value;
-};
-const waitUntil = async (expr, timeout = 20000) => {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    try { if (await evaluate(expr)) return true; } catch {}
-    await sleep(200);
-  }
-  return false;
-};
+const { send, evaluate, waitUntil } = cdp;
 
-await send('Page.enable');
-await send('Runtime.enable');
-await send('DOM.enable');
-await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 3, mobile: true });
 await send('Page.navigate', { url: BASE + '/#/capture' });
 await waitUntil("document.querySelector('#main')?.dataset.view === 'capture'");
 await sleep(400);
@@ -140,7 +103,7 @@ const zoomTxt = await evaluate("document.querySelector('.ed-zoom-v').textContent
 const zoomPct = Number(String(zoomTxt || '').replace('%', ''));
 check('双指张开能放大', zoomPct > 100 && zoomPct <= 400, 'zoom=' + zoomTxt);
 
-ws.close();
+cdp.close();
 console.log('');
 for (const r of results) console.log('  ' + (r.ok ? '✓' : '✗') + ' ' + r.n + (r.extra ? ' — ' + r.extra : ''));
 const failed = results.filter((r) => !r.ok).length;

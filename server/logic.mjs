@@ -287,75 +287,65 @@ export function fillSheet(sheetId, results) {
 }
 
 // ---------------------------------------------------------------- 统计
-export function weeklyStats(weekKey) {
-  const { start, end } = weekRange(weekKey);
-  const s = start.toISOString();
-  const e = addDays(end, 1).toISOString();
+// ---------------------------------------------------------------- 统计（周/月共用）
+const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
+const countOver = (sql, s, e) => Number(get(sql, s, e)?.v ?? 0);
+const NEW_Q = 'SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?';
+const ATT = 'SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<?';
+const OK = "SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<? AND result='correct'";
 
-  const prevStart = addDays(start, -7).toISOString();
-  const prevEnd = s;
-
-  const num = (sql, ...p) => Number(get(sql, ...p)?.v ?? 0);
-
-  const newQ = num(
-    'SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?',
-    s, e
-  );
-  const prevNewQ = num(
-    'SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?',
-    prevStart, prevEnd
-  );
-  const attempts = num('SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<?', s, e);
-  const prevAttempts = num('SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<?', prevStart, prevEnd);
-  const correct = num(
-    "SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<? AND result='correct'", s, e
-  );
-  const prevCorrect = num(
-    "SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<? AND result='correct'", prevStart, prevEnd
-  );
-
-  const byKp = all(
-    `SELECT COALESCE(kp_name,'未标注') AS kp, COUNT(*) AS n
-       FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?
-      GROUP BY kp ORDER BY n DESC LIMIT 8`,
-    s, e
-  );
-  const byType = all(
-    `SELECT COALESCE(error_type,'未分类') AS type, COUNT(*) AS n
-       FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?
-      GROUP BY type ORDER BY n DESC`,
-    s, e
-  );
-  const byStatus = all(
-    `SELECT status, COUNT(*) AS n FROM questions WHERE deleted_at IS NULL GROUP BY status`
-  );
-  const archivedThisWeek = num(
-    "SELECT COUNT(*) AS v FROM questions WHERE archived_at>=? AND archived_at<?", s, e
-  );
-
-  const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
-
+/** 一个区间的基础盘：新增/重做/正确率 + 上一次同类区间（用于环比） */
+function baseStats(s, e, prevS, prevE) {
+  const attempts = countOver(ATT, s, e);
+  const correct = countOver(OK, s, e);
+  const prevAttempts = countOver(ATT, prevS, prevE);
+  const prevCorrect = countOver(OK, prevS, prevE);
   return {
-    week: weekKey,
-    range: { start: isoDate(start), end: isoDate(end) },
-    new_questions: newQ,
-    new_questions_prev: prevNewQ,
+    new_questions: countOver(NEW_Q, s, e),
+    new_questions_prev: countOver(NEW_Q, prevS, prevE),
     attempts,
     attempts_prev: prevAttempts,
     correct,
     accuracy: pct(correct, attempts),
     accuracy_prev: pct(prevCorrect, prevAttempts),
-    archived_this_week: archivedThisWeek,
-    by_kp: byKp,
-    by_error_type: byType,
-    by_status: byStatus,
+  };
+}
+
+/** 区间内的考点/错因排行 + 科目分布 + 每日节奏 + 完成度 */
+function groupStats(s, e, kpLimit) {
+  return {
+    by_kp: all(
+      "SELECT COALESCE(kp_name,'未标注') AS kp, COUNT(*) AS n" +
+      ' FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?' +
+      ' GROUP BY kp ORDER BY n DESC LIMIT ?', s, e, kpLimit
+    ),
+    by_error_type: all(
+      "SELECT COALESCE(error_type,'未分类') AS type, COUNT(*) AS n" +
+      ' FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?' +
+      ' GROUP BY type ORDER BY n DESC', s, e
+    ),
     by_subject: subjectStats(s, e),
     daily: dailySeries(s, e),
     completion: completionStats(s, e),
   };
 }
 
-/** 给模型看的错题摘要（控制长度，避免烧 token） */
+export function weeklyStats(weekKey) {
+  const { start, end } = weekRange(weekKey);
+  const s = start.toISOString();
+  const e = addDays(end, 1).toISOString();
+  return {
+    week: weekKey,
+    range: { start: isoDate(start), end: isoDate(end) },
+    ...baseStats(s, e, addDays(start, -7).toISOString(), s),
+    archived_this_week: countOver(
+      'SELECT COUNT(*) AS v FROM questions WHERE archived_at>=? AND archived_at<?', s, e
+    ),
+    by_status: all('SELECT status, COUNT(*) AS n FROM questions WHERE deleted_at IS NULL GROUP BY status'),
+    ...groupStats(s, e, 8),
+  };
+}
+
 export function weekDigest(weekKey, limit = 25) {
   const { start, end } = weekRange(weekKey);
   const rows = all(
@@ -402,54 +392,8 @@ export function monthStats(monthKey) {
   const { start: pStart, end: pEnd } = monthRange(prevMonthKey(monthKey));
   const s = start.toISOString();
   const e = end.toISOString();
-
-  const num = (sql, ...p) => Number(get(sql, ...p)?.v ?? 0);
-  const newQ = num(
-    'SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?', s, e
-  );
-  const prevNewQ = num(
-    'SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?',
-    pStart.toISOString(), pEnd.toISOString()
-  );
-  const attempts = num('SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<?', s, e);
-  const correct = num("SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<? AND result='correct'", s, e);
-  const attemptsPrev = num(
-    'SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<?', pStart.toISOString(), pEnd.toISOString()
-  );
-  const correctPrev = num(
-    "SELECT COUNT(*) AS v FROM attempts WHERE at>=? AND at<? AND result='correct'",
-    pStart.toISOString(), pEnd.toISOString()
-  );
-
-  const archived = num(
-    'SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND archived_at>=? AND archived_at<?', s, e
-  );
-  const promoted = num(
-    'SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND status=\'key\' AND last_error_at>=? AND last_error_at<?',
-    s, e
-  );
-  const keyTotal = num(
-    "SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND status='key'"
-  );
-  const activeTotal = num(
-    "SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND status!='archived'"
-  );
-
-  const byKp = all(
-    `SELECT COALESCE(kp_name,'未标注') AS kp, COUNT(*) AS n
-       FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?
-      GROUP BY kp ORDER BY n DESC LIMIT 10`, s, e
-  );
-  const byType = all(
-    `SELECT COALESCE(error_type,'未分类') AS type, COUNT(*) AS n
-       FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?
-      GROUP BY type ORDER BY n DESC`, s, e
-  );
-  const byDifficulty = all(
-    `SELECT difficulty, COUNT(*) AS n
-       FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<?
-      GROUP BY difficulty ORDER BY difficulty`, s, e
-  );
+  const base = baseStats(s, e, pStart.toISOString(), pEnd.toISOString());
+  const countQ = (sql) => countOver(sql, s, e);
 
   // 每周新增趋势（整月的形状）
   const byWeek = [];
@@ -462,45 +406,28 @@ export function monthStats(monthKey) {
       const r = weekRange(w);
       const ws = new Date(Math.max(r.start.getTime(), start.getTime()));
       const we = new Date(Math.min(addDays(r.end, 1).getTime(), end.getTime()));
-      byWeek.push({
-        week: w,
-        n: number(new Date(ws.toISOString()), new Date(we.toISOString())),
-      });
+      byWeek.push({ week: w, n: number(ws, we) });
     }
     cur = addDays(cur, 7);
   }
 
-  const topRepeat = all(
-    `SELECT id, kp_name, error_count, difficulty, stem
-       FROM questions WHERE deleted_at IS NULL AND error_count >= 2
-      ORDER BY error_count DESC, difficulty DESC LIMIT 6`
-  );
-
-  const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
-
   return {
     month: monthKey,
     range: { start: isoDate(start), end: isoDate(new Date(end.getTime() - 1)) },
-    new_questions: newQ,
-    new_questions_prev: prevNewQ,
-    attempts,
-    attempts_prev: attemptsPrev,
-    correct,
-    accuracy: pct(correct, attempts),
-    accuracy_prev: pct(correctPrev, attemptsPrev),
-    archived,
-    promoted,
-    key_total: keyTotal,
-    active_total: activeTotal,
-    by_kp: byKp,
-    by_error_type: byType,
+    ...base,
+    archived: countQ('SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND archived_at>=? AND archived_at<?'),
+    promoted: countQ("SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND status='key' AND last_error_at>=? AND last_error_at<?"),
+    key_total: Number(get("SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND status='key'")?.v ?? 0),
+    active_total: Number(get("SELECT COUNT(*) AS v FROM questions WHERE deleted_at IS NULL AND status!='archived'")?.v ?? 0),
     by_week: byWeek,
-    by_difficulty: byDifficulty,
-    by_subject: subjectStats(s, e),
-    daily: dailySeries(s, e),
-    completion: completionStats(s, e),
+    by_difficulty: all(
+      'SELECT difficulty, COUNT(*) AS n FROM questions WHERE deleted_at IS NULL AND created_at>=? AND created_at<? GROUP BY difficulty ORDER BY difficulty', s, e
+    ),
     long_term: longTermSeries(monthKey, 6),
-    top_repeat: topRepeat,
+    ...groupStats(s, e, 10),
+    top_repeat: all(
+      'SELECT id, kp_name, error_count, difficulty, stem FROM questions WHERE deleted_at IS NULL AND error_count >= 2 ORDER BY error_count DESC, difficulty DESC LIMIT 6'
+    ),
   };
 }
 
