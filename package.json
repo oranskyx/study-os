@@ -5,7 +5,7 @@
   "type": "module",
   "description": "学习闭环 · 错题中枢：拍照识题 → 入库 → 变式 → 遗忘曲线调度 → 周报",
   "license": "MIT",
-  "author": "oransky",
+  "author": "oranskyx",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/oranskyx/study-os.git"

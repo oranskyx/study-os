@@ -454,7 +454,7 @@ Windows runner 自带 Edge，39 项移动端断言会真跑。
 
 - [ ] `git status` 里**没有** `data/` 和 `.env`
 - [ ] 代码里没有残留的 `sk-` 明文（key 只在运行时从库里读）
-- [ ] `LICENSE` 里的名字是 `oransky`，想改就改
+- [x] `LICENSE` 与 `package.json` 的署名是 `oranskyx`（GitHub 账号名）
 - [ ] README 里的截图链接还有效（截图在 `data/_shots/`，**不会被提交**，想放 README 就把图拷到 `docs/`）
 
 > 因为 `data/` 被忽略，克隆下来是**空库**：`npm install && npm start` 后会自动建表，
