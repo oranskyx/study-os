@@ -902,14 +902,17 @@ textarea { min-height: 68px; line-height: 1.65; }
   .hint { border: .6pt solid #888; background: transparent !important; }
 }
 
-/* ---------------------------------------------------------- 新手指引 */
+/* ---------------------------------------------------------- 新手指引（明暗对比） */
 .tour { position: fixed; inset: 0; z-index: 9998; display: none; }
-.tour-hole {
+.tour-mask { position: fixed; inset: 0; pointer-events: none; }
+.tour-mask i { position: fixed; display: block; background: rgba(20, 20, 19, .62); transition: all .16s ease; }
+.tour-ring {
   position: fixed;
+  border: 2px solid var(--accent);
   border-radius: 10px;
-  box-shadow: 0 0 0 9999px rgba(20, 20, 19, 0.55);
-  transition: all .18s ease;
   pointer-events: none;
+  transition: all .16s ease;
+  box-shadow: 0 0 0 3px rgba(201, 100, 66, .18);
 }
 .tour-card {
   position: fixed;
@@ -917,8 +920,8 @@ textarea { min-height: 68px; line-height: 1.65; }
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px 15px;
-  box-shadow: 0 8px 28px rgba(20, 20, 19, .18);
-  z-index: 9999;
+  box-shadow: 0 10px 34px rgba(20, 20, 19, .28);
+  z-index: 10000;
   max-width: calc(100vw - 20px);
 }
 .tour-step { font-size: 11.5px; color: var(--accent); letter-spacing: .04em; }

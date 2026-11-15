@@ -315,8 +315,14 @@ if (navBtn) {
 // ---------------------------------------------------------------- 设置页：可视化配置
 const MOCK = process.env.MOCK || 'http://127.0.0.1:7799/v1';
 
+
 window.location.hash = '#/settings';
 await waitFor(() => window.document.querySelector('#main')?.dataset?.view === 'settings');
+// 设置页现在默认折叠高级配置：先展开，后面的断言才有输入框
+await waitFor(() => Boolean(window.document.querySelector('[data-act="toggle-advanced"]')));
+window.document.querySelector('[data-act="toggle-advanced"]').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+await waitFor(() => Boolean(window.document.querySelector('[data-set="vision.baseUrl"]')));
+
 await waitFor(() => window.document.querySelector('[data-set="vision.baseUrl"]'));
 
 const baseIn = window.document.querySelector('[data-set="vision.baseUrl"]');

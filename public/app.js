@@ -200,6 +200,8 @@ const S = {
     models: { vision: [], text: [] },
     busy: null,
     note: null,
+    advanced: false,   // 展开高级配置：分别配文字和识图
+    sawVideo: false,   // 看过 API Key 教程
   },
   report: {
     busy: null,
@@ -208,6 +210,7 @@ const S = {
 
 // ---------------------------------------------------------------- 给 exams.js 的工具桥
 window.__app = {
+  editImage: (f) => openImageEditor(f),   // 考试传图复用同一套裁切/旋转
   api, esc, toast, render, go,
   richInline: (x) => richInline(x),
   richBlock: (x) => richBlock(x),
@@ -1101,8 +1104,11 @@ async function viewSettings() {
 
     ${s.note ? `<div class="hint ${s.note.kind}">${esc(s.note.text)}</div>` : ''}
 
-    ${settingBlock('vision', '识题模型（必须支持图片）', '把错题本照片变成结构化题目。没有视觉能力的模型接在这里会一直失败。')}
-    ${settingBlock('text', '写文模型（纯文本即可）', '出变式题、写周报月报、深挖错因。留空则自动复用识题模型那套配置。')}
+    ${quickSetupCard()}
+
+    ${s.advanced ? settingBlock('vision', '识题模型（必须支持图片）', '把错题本照片变成结构化题目。没有视觉能力的模型接在这里会一直失败。')
+      + settingBlock('text', '写文模型（纯文本即可）', '出变式题、写周报月报、深挖错因。留空则自动复用识题模型那套配置。')
+      : ''}
 
     <div class="card">
       <div class="row">
@@ -1172,6 +1178,72 @@ async function viewSettings() {
       <div class="row between" style="padding:4px 0"><span class="small">今天</span><span class="badge">${m.today}</span></div>
       <div class="row between" style="padding:4px 0"><span class="small">本周</span><span class="badge">${m.week}</span></div>
       <div class="row between" style="padding:4px 0"><span class="small">复习单周次</span><span class="badge">${m.sheetWeek}</span></div>
+    </div>
+  `;
+}
+
+/** 三步搞定：看视频 → 粘 key → 自动选模型。默认只露一个输入框，高级配置折叠。 */
+function quickSetupCard() {
+  const s = S.settings;
+  const c = S.meta?.config || {};
+  const ready = Boolean(c.vision?.ready);
+  const model = c.vision?.model || 'deepseek-flash';
+  const REVIEW = 'https://www.bilibili.com/video/BV1BgnN6YEr9/';
+
+  return `
+    <div class="card quick-setup">
+      <h2><span class="dot"></span>三步就能用</h2>
+
+      <div class="qstep ${s.sawVideo ? 'done' : ''}">
+        <span class="qnum">1</span>
+        <div class="qbody">
+          <b>先看 3 分钟教程：怎么拿 DeepSeek 的 API Key</b>
+          <p class="muted">看完照着做一遍，把 key 复制到手机或电脑的剪贴板里。</p>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <a class="btn sm primary" href="${REVIEW}" target="_blank" rel="noopener">▶ 打开教程视频</a>
+            ${s.sawVideo
+              ? '<span class="badge ok">已确认看过</span>'
+              : '<button class="btn sm" data-act="saw-video">我拿到 key 了</button>'}
+          </div>
+        </div>
+      </div>
+
+      <div class="qstep ${s.sawVideo ? '' : 'locked'}">
+        <span class="qnum">2</span>
+        <div class="qbody">
+          <b>把 API Key 粘进来</b>
+          <p class="muted">只要这一个框。模型地址和模型名都填好了，保存后自动挑 <code>deepseek-flash</code>。</p>
+          <label class="field" style="margin-bottom:8px">
+            <span>API Key（sk- 开头）</span>
+            <input id="quickKey" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="sk-..." value="" ${s.sawVideo ? '' : 'disabled'}>
+          </label>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <button class="btn primary" data-act="quick-save" ${s.busy ? 'disabled' : ''}>
+              ${s.busy === 'quick' ? '<span class="spin"></span> 检测中' : '保存并检测'}
+            </button>
+            <button class="btn sm ghost" data-act="toggle-advanced">
+              ${s.advanced ? '收起高级配置' : '展开配置（分开配文字和识图）'}
+            </button>
+          </div>
+          ${ready
+            ? '<p class="small" style="margin:8px 0 0;color:var(--ok)">当前在用：' + esc(model) + ' ✓</p>'
+            : '<p class="small" style="margin:8px 0 0;color:var(--muted)">还没配好，配完就能拍照录题了。</p>'}
+        </div>
+      </div>
+
+      <div class="qstep ${ready ? 'done' : ''}">
+        <span class="qnum">3</span>
+        <div class="qbody">
+          <b>试一张</b>
+          <p class="muted">去「录入」拍一页错题。第一次用得慢十几秒，之后会快很多。</p>
+          <button class="btn sm" data-act="go-capture">去拍照录题</button>
+        </div>
+      </div>
+
+      <p class="muted" style="margin:12px 0 0;font-size:12px">
+        要换成别的服务商（通义、豆包、自建网关…）就点「展开配置」，Base URL 和模型名都能改。
+      </p>
     </div>
   `;
 }
@@ -1633,6 +1705,51 @@ document.addEventListener('click', async (e) => {
       } finally {
         S.report.busy = false;
       }
+      return render();
+    }
+
+    if (act === 'saw-video') {
+      S.settings.sawVideo = true;
+      return render();
+    }
+
+    if (act === 'toggle-advanced') {
+      S.settings.advanced = !S.settings.advanced;
+      return render();
+    }
+
+    if (act === 'go-capture') return go('capture');
+
+    // 一步配好：默认 DeepSeek 官方地址，粘 key → 拉模型 → 自动选 deepseek-flash → 实测
+    if (act === 'quick-save') {
+      const key = (document.getElementById('quickKey')?.value || '').trim();
+      if (!key) return toast('先把 API Key 粘进来', 'warn');
+      S.settings.busy = 'quick';
+      await render();
+      try {
+        await api('/api/settings', {
+          method: 'PUT',
+          body: {
+            vision: { baseUrl: 'https://api.deepseek.com', model: '', apiKey: key },
+            text: { baseUrl: '', model: '', apiKey: '', clearKey: true },   // 文字复用识图这套
+          },
+        });
+        let picked = 'deepseek-flash';
+        try {
+          const list = await api('/api/settings/models', { method: 'POST', body: { kind: 'vision' } });
+          const ids = (list.models || []).map((m) => (typeof m === 'string' ? m : m.id));
+          if (ids.length && !ids.includes(picked)) picked = ids.find((x) => /flash/i.test(x)) || ids[0];
+        } catch { /* 有的服务商不给模型列表，就用默认名 */ }
+        await api('/api/settings', { method: 'PUT', body: { vision: { model: picked } } });
+        const test = await api('/api/ai/test', { method: 'POST', body: { kind: 'vision' } });
+        S.settings.note = { kind: 'ok', text: '配好了：' + (test.model || picked) + ' 实测可用，现在就能拍照录题。' };
+        toast('配好了，可以拍照录题了', 'ok');
+      } catch (err) {
+        S.settings.note = { kind: 'err', text: '没成功：' + err.message + '　检查 key 有没有复制全，或者稍后再试。' };
+        toast('没配成功，看下面的提示', 'err');
+      }
+      S.settings.busy = null;
+      S.meta = await api('/api/meta');
       return render();
     }
 

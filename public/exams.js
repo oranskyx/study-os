@@ -259,6 +259,35 @@ export async function viewSession(id) {
 }
 
 // ---------------------------------------------------------------- 详情
+/** 考试传图：和「录入」共用同一套裁切/旋转编辑器，逐张处理完再一起上传 */
+async function uploadExamPages(input) {
+  const files = [...(input.files || [])];
+  input.value = '';
+  if (!files.length) return;
+  const examId = S2.detail?.exam?.id || S2.id;
+  if (!examId) return toast('先打开一场考试', 'err');
+  const fd = new FormData();
+  let kept = 0;
+  for (const f of files) {
+    let blob = f;
+    try {
+      const edited = await window.__app?.editImage?.(f);
+      if (edited === null) continue;
+      if (edited) blob = edited;
+    } catch { /* 编辑器打不开就用原图 */ }
+    fd.append('photos', blob, 'page.jpg');
+    kept++;
+  }
+  if (!kept) return;
+  toast('上传中（' + kept + ' 张）…', 'ok');
+  try {
+    await api('/api/exams/' + examId + '/pages', { method: 'POST', form: fd });
+    toast('上传完成', 'ok');
+  } catch (err) {
+    toast('上传失败：' + err.message, 'err');
+  }
+  return render();
+}
 export async function viewDetail(id) {
   const { api, esc } = A();
   const d = await api('/api/exams/' + id);
@@ -307,9 +336,15 @@ function stageView(d) {
       <p class="muted" style="margin:0 0 10px">
         可以一次选多张。传完先看系统判的类型对不对，判错直接在下面改，再点识别。
       </p>
-      <input type="file" id="exFiles" accept="image/*" multiple style="display:none">
-      <div class="row">
-        <button class="btn primary" data-act="exam-pick">选择图片</button>
+      <div class="row" style="gap:8px">
+        <label class="btn primary" style="margin:0">
+          拍照
+          <input type="file" id="exCam" accept="image/*" capture="environment" hidden>
+        </label>
+        <label class="btn" style="margin:0">
+          从相册选
+          <input type="file" id="exFiles" accept="image/*" multiple hidden>
+        </label>
         <button class="btn" data-act="exam-extract-all" ${done === pages.length ? 'disabled' : ''}>
           识别全部未识别（${pages.length - done}）
         </button>
@@ -320,7 +355,7 @@ function stageView(d) {
   `);
 
   if (!pages.length) {
-    h.push('<div class="card"><div class="empty">还没有图片。点「选择图片」开始。</div></div>');
+    h.push('<div class="card"><div class="empty">还没有图片。点「拍照」或「从相册选」开始。</div></div>');
     return h.join('');
   }
 
@@ -807,7 +842,7 @@ export async function handle(act, el) {
     return render();
   }
 
-  if (act === 'exam-pick') {
+  if (act === 'exam-pick-legacy') {
     const input = document.getElementById('exFiles');
     input.onchange = async () => {
       if (!input.files || !input.files.length) return;
@@ -942,6 +977,8 @@ export function bindEvents() {
 
   // select 的 change 用事件委托，避免每次渲染重建监听
   document.addEventListener('change', async (e) => {
+    // 考试传图：拍照 / 相册选，都先过一遍裁切旋转再上传
+    if (e.target.id === 'exCam' || e.target.id === 'exFiles') { await uploadExamPages(e.target); return; }
     // 新建页：大考/小考切换（DOM 每次渲染都会重建，只能委托）
     if (e.target.id === 'nBig') {
       const big = e.target.value !== '0';

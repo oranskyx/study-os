@@ -1,5 +1,6 @@
 // 保姆级新手指引：一步一步告诉刚上手的人「这个按钮是干什么的」。
-// 不依赖任何库；挂到 window.__tour，app.js 在启动后调用 maybeStart()。
+// 明暗对比的难点是「只亮目标、其余变暗，但提示卡不能被压暗」——
+// 所以不用 box-shadow 打洞（移动端/滚动时容易露馅），而是用四块深色面板把目标框出来。
 const KEY = 'sos_tour_done';
 const STEPS = [
   {
@@ -62,7 +63,10 @@ function build() {
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-label', '新手指引');
   el.innerHTML =
-    '<div class="tour-hole"></div>'
+    '<div class="tour-mask" aria-hidden="true">'
+    + '  <i class="t-top"></i><i class="t-bottom"></i><i class="t-left"></i><i class="t-right"></i>'
+    + '</div>'
+    + '<div class="tour-ring" aria-hidden="true"></div>'
     + '<div class="tour-card">'
     + '  <div class="tour-step"></div>'
     + '  <h3 class="tour-title"></h3>'
@@ -88,7 +92,9 @@ function build() {
 function place() {
   const step = STEPS[idx];
   const card = el.querySelector('.tour-card');
-  const hole = el.querySelector('.tour-hole');
+  const ring = el.querySelector('.tour-ring');
+  const dim = el.querySelectorAll('.tour-mask i');
+  const [top, bottom, left, right] = dim;
   const target = step.sel ? document.querySelector(step.sel) : null;
 
   el.querySelector('.tour-step').textContent = '第 ' + (idx + 1) + ' / ' + STEPS.length + ' 步';
@@ -99,43 +105,56 @@ function place() {
 
   const vw = innerWidth;
   const vh = innerHeight;
-  if (target) {
-    const r = target.getBoundingClientRect();
-    const pad = 6;
-    hole.style.cssText = 'left:' + (r.left - pad) + 'px;top:' + (r.top - pad) + 'px;width:' + (r.width + pad * 2) + 'px;height:' + (r.height + pad * 2) + 'px;';
-    hole.style.display = 'block';
-    // 卡片放不下的方向就翻到另一边
-    const below = r.bottom + 12;
-    const above = r.top - 12;
-    const need = 190;
-    if (below + need < vh) {
-      card.style.top = below + 'px';
-      card.style.bottom = 'auto';
-    } else {
-      card.style.top = Math.max(8, above - need) + 'px';
-      card.style.bottom = 'auto';
-    }
-    const left = Math.min(Math.max(10, r.left + r.width / 2 - 150), vw - 310);
-    card.style.left = left + 'px';
-    card.style.width = Math.min(300, vw - 20) + 'px';
-  } else {
-    hole.style.display = 'none';
-    card.style.top = '30%';
+  card.style.transform = 'none';
+
+  if (!target) {
+    top.style.cssText = 'left:0;top:0;width:' + vw + 'px;height:' + vh + 'px;';
+    for (const p of [bottom, left, right]) p.style.cssText = 'display:none;';
+    ring.style.display = 'none';
+    card.style.top = '28%';
     card.style.left = '50%';
     card.style.transform = 'translateX(-50%)';
-    card.style.width = Math.min(300, vw - 20) + 'px';
+    card.style.width = Math.min(320, vw - 24) + 'px';
+    return;
   }
+
+  const r = target.getBoundingClientRect();
+  const pad = 8;
+  const hx = Math.max(0, r.left - pad);
+  const hy = Math.max(0, r.top - pad);
+  const hw = Math.min(vw - hx, r.width + pad * 2);
+  const hh = Math.min(vh - hy, r.height + pad * 2);
+
+  // 四块深色面板围出目标区域：目标本身保持全亮
+  top.style.cssText = 'left:0;top:0;width:' + vw + 'px;height:' + hy + 'px;display:block;';
+  bottom.style.cssText = 'left:0;top:' + (hy + hh) + 'px;width:' + vw + 'px;height:' + Math.max(0, vh - hy - hh) + 'px;display:block;';
+  left.style.cssText = 'left:0;top:' + hy + 'px;width:' + hx + 'px;height:' + hh + 'px;display:block;';
+  right.style.cssText = 'left:' + (hx + hw) + 'px;top:' + hy + 'px;width:' + Math.max(0, vw - hx - hw) + 'px;height:' + hh + 'px;display:block;';
+
+  ring.style.cssText = 'display:block;left:' + hx + 'px;top:' + hy + 'px;width:' + hw + 'px;height:' + hh + 'px;';
+
+  // 卡片优先放在目标下方；放不下就翻到上方；再不行贴底
+  const need = 200;
+  const belowTop = hy + hh + 12;
+  const aboveTop = hy - 12 - need;
+  let topPx;
+  if (belowTop + need <= vh) topPx = belowTop;
+  else if (aboveTop >= 8) topPx = aboveTop;
+  else topPx = Math.max(8, vh - need - 12);
+  card.style.top = topPx + 'px';
+  card.style.bottom = 'auto';
+  card.style.left = Math.min(Math.max(10, hx + hw / 2 - 160), Math.max(10, vw - 332)) + 'px';
+  card.style.width = Math.min(320, vw - 20) + 'px';
 }
 
 function go(n) {
   idx = Math.max(0, Math.min(STEPS.length - 1, n));
-  // 有的步骤需要先把页面切过去，才找得到目标元素
   const step = STEPS[idx];
   if (step.next && window.__app?.go) {
     const cur = (location.hash || '#/').replace(/^#\/?/, '').split('/')[0];
     if (cur !== step.next) {
       window.__app.go(step.next);
-      setTimeout(place, 260);
+      setTimeout(place, 280);
       return;
     }
   }
@@ -155,7 +174,7 @@ export function start() {
   el.style.display = 'block';
   idx = 0;
   document.body.classList.add('tour-open');
-  onResize = () => requestAnimationFrame(place);
+  onResize = () => place();
   addEventListener('resize', onResize);
   addEventListener('scroll', onResize, true);
   const esc = (e) => { if (e.key === 'Escape') finish(); };
