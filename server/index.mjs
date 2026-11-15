@@ -800,7 +800,12 @@ app.use(
 app.use('/api/exams', examsRouter());
 
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
-app.use('/', express.static(PUBLIC_DIR, { extensions: ['html'] }));
+// 前端是零构建的裸文件：改了就要立刻生效，别让浏览器拿旧的
+app.use('/', express.static(PUBLIC_DIR, {
+  extensions: ['html'],
+  etag: true,
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+}));
 
 app.use((err, _req, res, _next) => {
   console.error('[error]', err?.message || err);

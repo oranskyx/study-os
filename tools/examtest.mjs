@@ -189,6 +189,21 @@ if (!MOCK) {
 }
 
 
+
+  // 保存不能互相清空（用户报过：录完全部分数，挨个保存，保存完全变 0）
+  const sessP = await api('/api/exams/sessions', { method: 'POST', body: { grade: 1, term: 'up', exam_type: 'monthly', exam_date: '2026-09-28', subjects: [{ subject_id: 'physics', my_score: 80, full_score: 100, class_size: 56, school_size: 2214 }] } });
+  const pid2 = sessP.j.id;
+  const one = (await api('/api/exams/sessions/' + pid2)).j.subjects[0].id;
+  await api('/api/exams/' + one, { method: 'PATCH', body: { my_score: 95 } });
+  const afterPartial = (await api('/api/exams/sessions/' + pid2)).j.subjects[0];
+  ok('局部更新不会清掉其他字段', afterPartial.my_score === 95 && afterPartial.full_score === 100 && afterPartial.class_size === 56, JSON.stringify({ s: afterPartial.my_score, f: afterPartial.full_score, c: afterPartial.class_size }));
+  ok('物理满分默认 100（不是 150）', afterPartial.full_score === 100);
+
+  const ps = await api('/api/exams/presets');
+  ok('班级人数 56 进了候选项', (ps.j.class_sizes || []).includes(56), JSON.stringify(ps.j.class_sizes));
+  ok('校人数 2214 进了候选项', (ps.j.school_sizes || []).includes(2214), JSON.stringify(ps.j.school_sizes));
+
+  await api('/api/exams/sessions/' + pid2, { method: 'DELETE' });
 // ---------------------------------------------------------------- 考次（一场考试多科）
 {
   const types = (await api('/api/exams/types')).j;

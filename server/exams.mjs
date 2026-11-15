@@ -194,8 +194,23 @@ export function examsRouter() {
       key, JSON.stringify([...list].sort((a, b) => a - b).slice(-8)));
   };
 
+  /** 候选项 = 用户存过的 + 库里真实出现过的（含历史 total_students） */
+  const sizesFromData = (key) => all(
+    'SELECT DISTINCT ' + key + ' AS v FROM exams WHERE ' + key + ' IS NOT NULL AND deleted_at IS NULL'
+  ).map((r) => Number(r.v)).filter((v) => v > 0);
+
   r.get('/presets', wrap(async (_req, res) => {
-    res.json({ ...getPresets(), default_grade: defaultGrade(), cohort: Number(get("SELECT value FROM settings WHERE key='exam_cohort'")?.value || 0) || null });
+    const merged = (a, b) => [...new Set([...a, ...b])].sort((x, y) => x - y).slice(-8);
+    const stored = getPresets();
+    // 班级人数只从 class_size 来；历史字段 total_students 是年级/全校口径，归到校人数
+    const classSizes = merged(stored.class_sizes || [], sizesFromData('class_size'));
+    const schoolSizes = merged(stored.school_sizes || [], [...sizesFromData('school_size'), ...sizesFromData('total_students')]);
+    res.json({
+      class_sizes: classSizes,
+      school_sizes: schoolSizes,
+      default_grade: defaultGrade(),
+      cohort: Number(get("SELECT value FROM settings WHERE key='exam_cohort'")?.value || 0) || null,
+    });
   }));
 
   r.put('/presets', wrap(async (req, res) => {
@@ -390,6 +405,9 @@ export function examsRouter() {
     if ('has_grade_point' in b) patch.has_grade_point = b.has_grade_point ? 1 : 0;
     patch.updated_at = nowISO();
     update('exams', id, patch);
+    // 手填过的人数自动攒成候选项
+    if (patch.class_size) mergePreset('class_sizes', patch.class_size);
+    if (patch.school_size) mergePreset('school_sizes', patch.school_size);
     res.json({ ok: true, exam: get('SELECT * FROM exams WHERE id=?', id) });
   }));
 

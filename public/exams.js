@@ -149,6 +149,12 @@ export async function viewNew() {
   const today = meta.today;
   const grade = String(presets.default_grade || 1);
 
+  const smallRow = '<div id="nSmallRow" style="display:none">'
+    + '<div class="field-row">'
+    + '<label class="field"><span>科目</span><select id="nSubjSingle">' + SUBJECTS.map(([id, l]) => '<option value="' + id + '">' + l + '</option>').join('') + '</select></label>'
+    + '<label class="mini"><span>满分</span><input id="nSingleFull" type="number" step="0.5" value="150"></label>'
+    + '<label class="mini"><span>得分</span><input id="nSingleScore" type="number" step="0.5" placeholder="—"></label>'
+    + '</div></div>';
   const rows = SUBJECTS.map(([id, label]) => '<div class="subj-row" data-subj="' + id + '">'
     + '<label class="pick2"><input type="checkbox" data-sub="' + id + '"></label>'
     + '<span class="subj-name">' + label + '</span>'
@@ -171,7 +177,8 @@ export async function viewNew() {
     + '<label class="field"><span>规模</span><select id="nBig"><option value="1">大考（多科）</option><option value="0">小考（一科）</option></select></label>'
     + '</div>'
     + '<p class="muted" style="margin:0 0 8px;font-size:12px">名称不用填，自动生成（例如 2026高一上期中）。</p>'
-    + '<div id="nSubjects">' + rows + '</div>'
+    + smallRow
+    + '<div id="nBigRows">' + rows + '</div>'
     + '<div class="field-row">'
     + '<label class="field"><span>班级人数（常用值可选）</span><input id="nClassSize" list="dlClass" placeholder="56"><datalist id="dlClass">'
     + [56, 2000, 2200].concat(presets.class_sizes || []).filter((v, i, a) => a.indexOf(v) === i).map((v) => '<option value="' + v + '">').join('')
@@ -200,6 +207,7 @@ export async function viewSession(id) {
     + '<div><h2 style="margin:0 0 4px"><span class="dot"></span>' + esc(s.title) + '</h2>'
     + '<p class="muted" style="margin:0">' + esc(s.type_label) + ' · ' + (s.is_big ? '大考' : '小考') + ' · ' + subs.length + ' 科</p></div>'
     + '<div class="row" style="gap:6px">'
+    + '<button class="btn sm primary" data-act="exam-save-all">一键保存全部</button>'
     + '<button class="btn sm" data-act="exam-session-edit" data-id="' + s.id + '">' + (S3.edit ? '收起' : '改这场考试') + '</button>'
     + '</div></div>');
   if (S3.edit) {
@@ -243,7 +251,7 @@ export async function viewSession(id) {
   h.push('<div class="card"><h2><span class="dot"></span>补一科</h2>'
     + '<div class="field-row">'
     + '<label class="field"><span>科目</span><select id="addSubj">' + SUBJECTS.filter(([id]) => !subs.some((e) => e.subject_id === id)).map(([id, l]) => '<option value="' + id + '">' + l + '</option>').join('') + '</select></label>'
-    + '<label class="mini"><span>满分</span><input id="addFull" type="number" step="0.5" value="150"></label>'
+    + '<label class="mini"><span>满分</span><input id="addFull" type="number" step="0.5" value="150" data-autofull="1"></label>'
     + '<label class="mini"><span>得分</span><input id="addScore" type="number" step="0.5" placeholder="—"></label>'
     + '</div><button class="btn sm" data-act="exam-add-subject" data-id="' + s.id + '">加入这场考试</button></div>');
 
@@ -554,34 +562,49 @@ const S3 = { edit: false };
 const idxOf = () => Number((String(location.hash).split('/')[2] || '').replace(/\D.*$/, ''));
 
 /** 新建页：把勾选与填写的科目收成数组 */
+/** 读一张科目卡片上的全部字段（空 = null，表示清空这一项） */
+function readCard(card) {
+  const body = {};
+  for (const inp of card.querySelectorAll('[data-f]')) {
+    const k = inp.dataset.f;
+    body[k] = inp.value === '' ? null : Number(inp.value);
+  }
+  return body;
+}
+
 function collectNewSubjects() {
   const big = document.getElementById('nBig')?.value !== '0';
+  const common = {
+    rank_class: Number(document.getElementById('nRankClass')?.value) || null,
+    class_size: Number(document.getElementById('nClassSize')?.value) || null,
+    rank_school: Number(document.getElementById('nRankSchool')?.value) || null,
+    school_size: Number(document.getElementById('nSchoolSize')?.value) || null,
+  };
+  if (!big) {
+    const id = document.getElementById('nSubjSingle')?.value;
+    if (!id) return [];
+    const full = Number(document.getElementById('nSingleFull')?.value) || FULL_DEFAULT[id] || 100;
+    const raw = document.getElementById('nSingleScore')?.value;
+    return [{ subject_id: id, full_score: full, my_score: raw === '' || raw == null ? null : Number(raw), ...common }];
+  }
   const out = [];
   for (const [id] of SUBJECTS) {
     const cb = document.querySelector('[data-sub="' + id + '"]');
-    if (!cb) continue;
-    if (big && !cb.checked) continue;
-    if (!big && cb.checked === false && out.length) continue;
+    if (!cb || !cb.checked) continue;
     const full = Number(document.querySelector('[data-full="' + id + '"]')?.value) || FULL_DEFAULT[id];
-    const scoreRaw = document.querySelector('[data-score="' + id + '"]')?.value;
-    out.push({
-      subject_id: id,
-      full_score: full,
-      my_score: scoreRaw === '' || scoreRaw == null ? null : Number(scoreRaw),
-      rank_class: Number(document.getElementById('nRankClass')?.value) || null,
-      class_size: Number(document.getElementById('nClassSize')?.value) || null,
-      rank_school: Number(document.getElementById('nRankSchool')?.value) || null,
-      school_size: Number(document.getElementById('nSchoolSize')?.value) || null,
-    });
-  }
-  if (!big) {
-    // 小考：只取第一个勾选的科目
-    const picked = out.length ? [out[0]] : [];
-    return picked;
+    const raw = document.querySelector('[data-score="' + id + '"]')?.value;
+    out.push({ subject_id: id, full_score: full, my_score: raw === '' || raw == null ? null : Number(raw), ...common });
   }
   return out;
 }
 
+
+/** 科目一换，满分跟着换（语数英 150，物化生 100） */
+function setFullFor(select, fullId) {
+  if (!select) return;
+  const input = document.getElementById(fullId);
+  if (input) input.value = FULL_DEFAULT[select.value] ?? 100;
+}
 
 export async function handle(act, el) {
   const { api, toast, render } = A();
@@ -663,20 +686,34 @@ export async function handle(act, el) {
 
   if (act === 'exam-subject-save') {
     const card = el.closest('.subj-card');
-    const body = {};
-    for (const inp of card.querySelectorAll('[data-f]')) {
-      const k = inp.dataset.f;
-      body[k] = inp.value === '' ? null : (k === 'has_grade_point' ? Number(inp.value) : Number(inp.value));
-    }
     el.disabled = true;
     try {
-      await api('/api/exams/' + el.dataset.id, { method: 'PATCH', body });
+      await api('/api/exams/' + el.dataset.id, { method: 'PATCH', body: readCard(card) });
     } catch (err) {
-      toast(err.message, 'err');
       el.disabled = false;
+      toast(err.message, 'err');
       return true;
     }
-    toast('这一科已保存', 'ok');
+    // 关键：保存单科**不重渲染**，否则其他科目里还没保存的输入会被清空
+    el.disabled = false;
+    el.textContent = '✓ 已保存';
+    setTimeout(() => { el.textContent = '保存这一科'; }, 1600);
+    return true;
+  }
+
+  if (act === 'exam-save-all') {
+    const cards = [...document.querySelectorAll('.subj-card')];
+    if (!cards.length) return true;
+    el.disabled = true;
+    el.textContent = '保存中…';
+    let ok = 0, fail = 0;
+    for (const card of cards) {
+      try {
+        await api('/api/exams/' + card.dataset.eid, { method: 'PATCH', body: readCard(card) });
+        ok++;
+      } catch { fail++; }
+    }
+    toast(fail ? ('保存 ' + ok + ' 科，失败 ' + fail + ' 科') : ('已保存 ' + ok + ' 科'), fail ? 'err' : 'ok');
     return render();
   }
 
@@ -902,8 +939,22 @@ export async function handle(act, el) {
 }
 
 export function bindEvents() {
+
   // select 的 change 用事件委托，避免每次渲染重建监听
   document.addEventListener('change', async (e) => {
+    // 新建页：大考/小考切换（DOM 每次渲染都会重建，只能委托）
+    if (e.target.id === 'nBig') {
+      const big = e.target.value !== '0';
+      const bigBox = document.getElementById('nBigRows');
+      const smallBox = document.getElementById('nSmallRow');
+      if (bigBox) bigBox.style.display = big ? '' : 'none';
+      if (smallBox) smallBox.style.display = big ? 'none' : '';
+      if (!big) setFullFor(e.target.parentElement.querySelector('#nSubjSingle'), 'nSingleFull');
+      return;
+    }
+    // 科目换满分：语数英 150，物化生 100
+    if (e.target.id === 'nSubjSingle') { setFullFor(e.target, 'nSingleFull'); return; }
+    if (e.target.id === 'addSubj') { setFullFor(e.target, 'addFull'); return; }
     const t = e.target.closest('[data-act="mark-teacher"]');
     if (t) {
       const iid = String(t.dataset.iid);
