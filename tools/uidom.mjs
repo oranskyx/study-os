@@ -151,6 +151,38 @@ if (keyFilter) {
   }
 }
 
+// ---------------------------------------------------------------- 错因标签
+// 列表页必须能直接看到「错因类型」和「错因正文」，不能只有点进详情才看得到。
+{
+  const r = await globalThis.fetch(BASE + '/api/questions/bulk', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      questions: [{
+        stem: '错因标签自检题：求 $2+2$。',
+        kp_name: '集合的概念与表示',
+        correct_answer: '4',
+        difficulty: 2,
+        error_type: '计算失误',
+        error_cause: '把 2+2 算成了 5',
+      }],
+    }),
+  }).then((x) => x.json());
+  const qid = r.ids?.[0];
+  tmpIds.push(qid);
+  window.location.hash = '#/bank';
+  // 已经停在 #/bank 时再设同一个 hash 不会触发 hashchange，列表不会重渲染
+  window.dispatchEvent(new window.HashChangeEvent('hashchange'));
+  await waitFor(() => window.document.querySelector('#main')?.dataset?.view === 'bank');
+  await waitFor(() => window.document.querySelector('[data-act="q-open"][data-id="' + qid + '"]'));
+  const card = window.document.querySelector('[data-act="q-open"][data-id="' + qid + '"]');
+  const t = (card?.textContent || '').replace(/\s+/g, ' ');
+  check('列表卡片显示错因类型标签', t.includes('计算失误'), '卡片文本：' + t.slice(0, 80));
+  check('列表卡片显示错因正文', t.includes('算成了 5'), '卡片文本：' + t.slice(0, 80));
+  check('错因正文带「错因」标签', Boolean(card?.querySelector('.cause-k')));
+}
+
+
 // 点刚造的那张卡进详情
 window.location.hash = '#/bank';
 await waitFor(() => window.document.querySelector('#main')?.dataset?.view === 'bank');

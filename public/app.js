@@ -630,17 +630,25 @@ async function viewBank() {
         return `
         <div class="q" data-act="q-open" data-id="${q.id}" style="cursor:pointer">
           <div class="head">
-            <input type="checkbox" class="qpick" data-act="bank-pick" data-id="${q.id}"
-              ${(S.bank.sel || []).includes(q.id) ? 'checked' : ''} onclick="event.stopPropagation()">
+            <label class="pick" onclick="event.stopPropagation()">
+              <input type="checkbox" class="qpick" data-act="bank-pick" data-id="${q.id}"
+                ${(S.bank.sel || []).includes(q.id) ? 'checked' : ''}>
+            </label>
             ${badge}
             <span class="badge d">${esc(q.kp_name || '未标注')}</span>
             <span class="badge d">难度 ${q.difficulty || '?'}</span>
+            ${q.error_type ? `<span class="badge d">${esc(q.error_type)}</span>` : ''}
             ${q.error_count > 1 ? `<span class="badge" style="color:var(--bad)">错 ${q.error_count} 次</span>` : ''}
             <span class="spacer" style="flex:1"></span>
             <span class="id">#${q.id}</span>
           </div>
           <div class="stem clamp">${richInline(q.stem)}</div>
-          ${q.error_cause ? `<div class="cause">${esc(q.error_cause).slice(0, 90)}</div>` : ''}
+          ${(() => {
+            const cause = q.error_cause || q.error_cause_ai;
+            if (cause) return `<div class="cause"><span class="cause-k">错因</span>${esc(cause).slice(0, 90)}</div>`;
+            if (q.error_type) return '<div class="cause muted"><span class="cause-k">错因</span>只标了类型，点开补一句</div>';
+            return '';
+          })()}
         </div>`;
       })
       .join('')

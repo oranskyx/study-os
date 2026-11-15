@@ -26,7 +26,7 @@ try {
   console.error(e.message);
   process.exit(1);
 }
-const { send } = cdp;
+const { send, evaluate } = cdp;
 
 const METRICS = `(() => {
   const rgb = (s) => { const m = String(s).match(/[\d.]+/g); return m ? m.map(Number) : null; };
@@ -65,8 +65,10 @@ const METRICS = `(() => {
         if (cr < (large ? 3 : 4.5)) lowContrast.push({ text: txt.slice(0, 24), fs, cr: Math.round(cr * 100) / 100, fg: s.color, bg: 'rgb(' + bg.join(',') + ')' });
       }
     }
+    // 真实点按区域可能是包着输入的 label（例如 18px 的复选框外面有 44px 的 label）
+    const hit = el.tagName === 'INPUT' && el.closest('label.pick') ? el.closest('label.pick') : el;
     if (['BUTTON', 'A', 'SELECT', 'INPUT', 'TEXTAREA', 'LABEL'].includes(el.tagName)) {
-      const r = el.getBoundingClientRect();
+      const r = hit.getBoundingClientRect();
       if (el.tagName !== 'LABEL' || el.control) {
         if (r.height > 0 && (r.height < 43.5 || (el.tagName === 'A' && r.width < 43.5 && r.height < 43.5))) {
           smallTargets.push({ tag: el.tagName, text: (el.textContent || el.value || '').trim().slice(0, 18), w: Math.round(r.width), h: Math.round(r.height) });
@@ -127,9 +129,7 @@ for (const width of WIDTHS) {
     }
     let m = null;
     try {
-      const r = await send('Runtime.evaluate', { expression: METRICS, returnByValue: true, awaitPromise: true });
-      m = r.result && r.result.value;
-      if (r.exceptionDetails) m = { error: (r.exceptionDetails.exception && r.exceptionDetails.exception.description || r.exceptionDetails.text || '').split('\n').slice(0, 3).join(' | ') };
+      m = await evaluate(METRICS);
     } catch (e) { m = { error: String(e.message).slice(0, 120) }; }
     let shot = null;
     try {
@@ -140,8 +140,7 @@ for (const width of WIDTHS) {
     } catch {}
     report.push({ width, route, shot, metrics: m });
     if (process.argv.includes('--dump')) {
-      const d = await send('Runtime.evaluate', { expression: 'document.body.innerText.replace(/\\s+/g," ").slice(0,1600)', returnByValue: true });
-      console.log('  [text] ' + (d.result && d.result.value));
+      console.log('  [text] ' + (await evaluate("document.body.innerText.replace(/\s+/g,' ').slice(0,1600)")));
     }
     const mm = m || {};
     if (mm.error) console.log('  [metrics error] ' + mm.error);
