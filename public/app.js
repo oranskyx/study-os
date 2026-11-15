@@ -1117,6 +1117,30 @@ async function viewSettings() {
       </p>
     </div>
 
+    <div class="card" id="installCard">
+      <h2><span class="dot"></span>装到手机上（像 App 一样用）</h2>
+      <p class="small" style="margin:0 0 10px;line-height:1.8">
+        不用去应用商店下载。手机浏览器打开这个网址，加到主屏幕就行，图标和打开方式都和 App 一样。
+      </p>
+      <div class="install-steps">
+        <div class="istep"><b>安卓 / 鸿蒙</b><span>用 Chrome 或系统浏览器打开 → 右上角「⋮」→「添加到主屏幕 / 安装应用」→ 确认。</span></div>
+        <div class="istep"><b>iPhone / iPad</b><span>必须用 <b>Safari</b> 打开 → 底部「分享」按钮（方框带箭头）→ 往下找「添加到主屏幕」→ 点「添加」。</span></div>
+        <div class="istep"><b>电脑</b><span>Chrome / Edge 地址栏右边的「安装」图标，或菜单里「安装错题中枢」。</span></div>
+      </div>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">
+        前提：手机和电脑连同一个 WiFi，并且电脑上已经执行过 <code>npm run firewall:add</code>。
+        网址就是上面「手机扫这个码」里那个 <code>http://192.168.x.x:7788</code>。
+      </p>
+    </div>
+
+    <div class="card">
+      <h2><span class="dot"></span>新手指引</h2>
+      <p class="small" style="margin:0 0 10px;line-height:1.8">
+        第一次用会自己弹出来，一步步带你认按钮。关掉之后想再看，点下面这个。
+      </p>
+      <button class="btn sm" data-act="tour-again">再看一遍新手指引</button>
+    </div>
+
     ${lanCard(m)}
 
     <div class="card">
@@ -1610,6 +1634,11 @@ document.addEventListener('click', async (e) => {
         S.report.busy = false;
       }
       return render();
+    }
+
+    if (act === 'tour-again') {
+      window.__tour?.reset();
+      return true;
     }
 
     if (act === 'ai-test') {
@@ -2190,6 +2219,7 @@ if (window.__exams) window.__exams.bindEvents();
     S.meta = await api('/api/meta');
   } catch { /* render 里还会再试 */ }
   await render();
+  window.__tour?.maybeStart();
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});

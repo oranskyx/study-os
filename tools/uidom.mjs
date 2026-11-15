@@ -263,6 +263,37 @@ if (navBtn) {
     btn ? ('disabled=' + btn.disabled) : '按钮不见了');
 }
 
+
+// ---------------------------------------------------------------- 新手指引（保姆级）
+{
+  const tourJs = readFileSync(path.join(ROOT, 'public/tour.js'), 'utf8').replace(/^export /gm, '');
+  try { window.eval(tourJs); } catch (e) { pageErrors.push('tour.js: ' + e.message); }
+  check('新手指引脚本能加载', Boolean(window.__tour));
+
+  window.__tour.start();
+  const shown = await waitFor(() => window.document.querySelector('.tour-title'));
+  check('点「再看一遍」能弹出指引', shown, window.document.querySelector('.tour-title')?.textContent || '没弹出');
+  check('第一步在讲底部导航', String(window.document.querySelector('.tour-title')?.textContent || '').includes('这一排'), window.document.querySelector('.tour-title')?.textContent || '');
+  check('有进度提示（第 1 / N 步）', /第 1 \/ \d+ 步/.test(String(window.document.querySelector('.tour-step')?.textContent || '')), String(window.document.querySelector('.tour-step')?.textContent || ''));
+
+  window.document.querySelector('.tour [data-t=' + JSON.stringify('next') + ']').click();
+  await sleep(120);
+  check('点「下一步」会换内容', String(window.document.querySelector('.tour-title')?.textContent || '').includes('今天'), window.document.querySelector('.tour-title')?.textContent || '');
+
+  window.document.querySelector('.tour [data-t=' + JSON.stringify('skip') + ']').click();
+  await sleep(80);
+  check('点「跳过」会关掉', window.document.querySelector('.tour').style.display === 'none');
+  check('跳过状态会被记住（下次不自动弹）', window.localStorage.getItem('sos_tour_done') === '1');
+}
+
+// ---------------------------------------------------------------- 可安装性（PWA）
+{
+  const mf = JSON.parse(readFileSync(path.join(ROOT, 'public/manifest.webmanifest'), 'utf8'));
+  check('manifest 有名字和启动页', Boolean(mf.name && mf.start_url), mf.name + ' / ' + mf.start_url);
+  check('manifest 是 standalone（装到桌面像 App）', mf.display === 'standalone');
+  check('图标里有 192 和 512 的 PNG', (mf.icons || []).some((i) => i.sizes === '192x192' && i.type === 'image/png') && (mf.icons || []).some((i) => i.sizes === '512x512' && i.type === 'image/png'), (mf.icons || []).map((i) => i.sizes).join(','));
+  check('图标文件真实存在', ['icon-192.png', 'icon-512.png', 'apple-touch-icon.png'].every((f) => { try { return readFileSync(path.join(ROOT, 'public', f)).length > 500; } catch { return false; } }));
+}
 // ---------------------------------------------------------------- 打印页
 {
   const meta = await globalThis.fetch(`${BASE}/api/meta`).then((r) => r.json());

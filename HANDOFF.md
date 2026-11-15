@@ -441,6 +441,38 @@ npm run test:all     # 推荐：隔离环境跑全部 5 个套件
 
 验证：`npm run test:all` **271 项全绿**（exam 39 → 58），真实浏览器渲染三个视图无溢出。
 
+
+### 2026-11-15（第七轮：手机 App 化 + 新手指引）
+
+用户问「怎么做成手机 App」「能不能加保姆级引导，让不懂 AI 的小学生也能用」。
+
+**手机 App：走 PWA，不进应用商店**
+
+- 新增 PNG 图标：`public/icon-192.png` / `icon-512.png` / `apple-touch-icon.png`，
+  由 `npm run icons`（`tools/make-icons.mjs`）用无头 Edge 把 `icon.svg` 渲成 PNG，
+  不引入图形库、不依赖 ImageMagick。
+- `manifest.webmanifest`：`display: standalone`、`orientation: portrait`、
+  配色改成当前设计令牌（纸 `#faf9f5` / 墨 `#141413`）——之前还是作废的靛蓝。
+- `index.html` 补 `apple-touch-icon` 与 `apple-mobile-web-app-title`（iOS 必需）。
+- 设置页新增「装到手机上」卡片：安卓/鸿蒙、iPhone、电脑三套步骤写清楚；
+  并提示前提是同一 WiFi + `npm run firewall:add`。
+- 想真要 APK 再套 Capacitor，但 PWA 已经能满足「主屏图标 + 全屏 + 离线壳」。
+
+**新手指引（public/tour.js，7 步）**
+
+- 底部导航 → 首页「今天」→ 录入 → 错题库 → 考试 → 报表 → 设置。
+- 挖洞式高亮（`box-shadow: 0 0 0 9999px`）+ 卡片自动上/下翻转防出屏；
+  需要换页的步骤会先 `go()` 再定位。
+- 只在第一次自动弹（`localStorage.sos_tour_done`）；设置页「再看一遍新手指引」随时重开。
+- 支持 Esc 关闭、上一步/下一步/跳过，最后一步按钮变「开始用吧」。
+
+**踩到的坑**：高亮定位原先用 `requestAnimationFrame(place)`，
+在 jsdom 里 rAF 不触发 → 指引卡片渲染出来但标题是空的（测试红了才发现）。
+改成同步 `place()`。**布局定位这种事不要依赖动画帧的副作用**。
+
+验证：`npm run test:all` **286 项全绿**（ui 51 → 62，新增指引与可安装性断言），
+390px 真浏览器截图确认高亮与卡片位置正常。
+
 ## 13. 没做完的事（按建议优先级）
 
 ### P1 — 最影响体验
