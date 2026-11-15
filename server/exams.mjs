@@ -130,7 +130,247 @@ export function examsRouter() {
   }));
 
   // ---------------------------------------------------------------- 单场详情
-  r.get('/:id', wrap(async (req, res) => {
+  // ================================================================ 考次（一场考试，下挂多科）
+  const GRADES = ['高一', '高二', '高三'];
+  const FULL_DEFAULT = { chinese: 150, math: 150, english: 150, physics: 100, chemistry: 100, biology: 100 };
+
+  const academicYear = (dateStr) => {
+    const d = new Date(String(dateStr || '') + 'T00:00:00');
+    if (Number.isNaN(d.getTime())) return new Date().getFullYear();
+    return d.getMonth() + 1 >= 9 ? d.getFullYear() : d.getFullYear() - 1;
+  };
+  const typeOf = (key) => get('SELECT * FROM exam_types WHERE key=?', key) || { key, label: key };
+  const buildTitle = (cohort, grade, term, label) =>
+    String(cohort) + (GRADES[(Number(grade) || 1) - 1] || '高一') + (term === 'down' ? '下' : '上') + label;
+
+  /** 默认年级：入学届固定的情况下，按当前学年推（2026 届 → 2026-2027 学年是高一） */
+  function defaultGrade(now = new Date()) {
+    const cohort = Number(get("SELECT value FROM settings WHERE key='exam_cohort'")?.value || 0);
+    if (!cohort) return 1;
+    const ay = now.getMonth() + 1 >= 9 ? now.getFullYear() : now.getFullYear() - 1;
+    return Math.max(1, Math.min(3, ay - cohort + 1));
+  }
+
+  r.get('/types', wrap(async (_req, res) => {
+    res.json(all('SELECT * FROM exam_types ORDER BY builtin DESC, sort, id'));
+  }));
+
+  r.post('/types', wrap(async (req, res) => {
+    const label = S(req.body?.label);
+    if (!label) return res.status(400).json({ error: '类型名不能为空' });
+    const dup = get('SELECT * FROM exam_types WHERE label=?', label);
+    if (dup) return res.json({ type: dup, existed: true });
+    const key = 'custom-' + Date.now().toString(36);
+    const id = insert('exam_types', { key, label, builtin: 0, sort: 200 });
+    res.json({ id, type: get('SELECT * FROM exam_types WHERE id=?', id) });
+  }));
+
+  r.patch('/types/:id', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const t = get('SELECT * FROM exam_types WHERE id=?', id);
+    if (!t) return res.status(404).json({ error: '类型不存在' });
+    const label = S(req.body?.label);
+    if (!label) return res.status(400).json({ error: '类型名不能为空' });
+    run('UPDATE exam_types SET label=? WHERE id=?', label, id);
+    res.json({ ok: true, type: get('SELECT * FROM exam_types WHERE id=?', id) });
+  }));
+
+  /** 常用值：参考人数、满分等，用户填过就记住 */
+  const PRESET_KEYS = ['class_sizes', 'school_sizes'];
+  const getPresets = () => {
+    const out = {};
+    for (const k of PRESET_KEYS) {
+      try { out[k] = JSON.parse(get('SELECT value FROM exam_presets WHERE key=?', k)?.value || '[]'); }
+      catch { out[k] = []; }
+    }
+    return out;
+  };
+  const mergePreset = (key, value) => {
+    const v = Number(value);
+    if (!v || v <= 0) return;
+    const list = new Set(getPresets()[key] || []);
+    list.add(v);
+    run('INSERT INTO exam_presets (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+      key, JSON.stringify([...list].sort((a, b) => a - b).slice(-8)));
+  };
+
+  r.get('/presets', wrap(async (_req, res) => {
+    res.json({ ...getPresets(), default_grade: defaultGrade(), cohort: Number(get("SELECT value FROM settings WHERE key='exam_cohort'")?.value || 0) || null });
+  }));
+
+  r.put('/presets', wrap(async (req, res) => {
+    for (const k of PRESET_KEYS) {
+      if (Array.isArray(req.body?.[k])) {
+        const list = [...new Set(req.body[k].map(Number).filter((x) => x > 0))].sort((a, b) => a - b).slice(-8);
+        run('INSERT INTO exam_presets (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, JSON.stringify(list));
+      }
+    }
+    res.json({ ok: true, ...getPresets() });
+  }));
+
+  /** 考次列表：带筛选（年级/学期/科目/类型） */
+  r.get('/sessions', wrap(async (req, res) => {
+    const where = ['s.deleted_at IS NULL'];
+    const p = [];
+    if (req.query.grade) { where.push('s.grade=?'); p.push(Number(req.query.grade)); }
+    if (req.query.term) { where.push('s.term=?'); p.push(String(req.query.term)); }
+    if (req.query.type) { where.push('s.exam_type=?'); p.push(String(req.query.type)); }
+    if (req.query.subject && req.query.subject !== 'all') {
+      where.push('EXISTS (SELECT 1 FROM exams e WHERE e.session_id=s.id AND e.subject_id=? AND e.deleted_at IS NULL)');
+      p.push(String(req.query.subject));
+    }
+    const rows = all(
+      "SELECT s.*, (SELECT COUNT(*) FROM exams e WHERE e.session_id=s.id AND e.deleted_at IS NULL) AS subject_count, " +
+      "(SELECT COALESCE(SUM(e.my_score),0) FROM exams e WHERE e.session_id=s.id AND e.deleted_at IS NULL) AS sum_score, " +
+      "(SELECT COALESCE(SUM(e.full_score),0) FROM exams e WHERE e.session_id=s.id AND e.deleted_at IS NULL) AS sum_full " +
+      'FROM exam_sessions s WHERE ' + where.join(' AND ') + ' ORDER BY s.exam_date DESC, s.id DESC',
+      ...p
+    );
+    const subjects = all(
+      'SELECT e.id, e.session_id, e.subject_id, e.name, e.full_score, e.my_score, e.rank, e.total_students, ' +
+      'e.rank_class, e.class_size, e.rank_school, e.school_size, e.has_grade_point ' +
+      'FROM exams e JOIN exam_sessions s ON s.id=e.session_id WHERE e.deleted_at IS NULL ORDER BY e.id'
+    );
+    const byId = new Map();
+    for (const e of subjects) {
+      if (!byId.has(e.session_id)) byId.set(e.session_id, []);
+      byId.get(e.session_id).push(e);
+    }
+    res.json({
+      sessions: rows.map((s) => ({
+        ...s,
+        type_label: typeOf(s.exam_type).label,
+        subjects: byId.get(s.id) || [],
+      })),
+      default_grade: defaultGrade(),
+      filters: { grades: GRADES, terms: [['up', '上学期'], ['down', '下学期']] },
+    });
+  }));
+
+  r.get('/sessions/:id', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const session = get('SELECT * FROM exam_sessions WHERE id=? AND deleted_at IS NULL', id);
+    if (!session) return res.status(404).json({ error: '这场考试不存在' });
+    const subjects = all('SELECT * FROM exams WHERE session_id=? AND deleted_at IS NULL ORDER BY id', id);
+    res.json({
+      session: { ...session, type_label: typeOf(session.exam_type).label },
+      subjects,
+      presets: getPresets(),
+    });
+  }));
+
+  /** 建考次：大考可一次建多科；小考只建一科 */
+  r.post('/sessions', wrap(async (req, res) => {
+    const b = req.body || {};
+    const grade = Math.max(1, Math.min(3, Number(b.grade) || defaultGrade()));
+    const term = b.term === 'down' ? 'down' : 'up';
+    const examDate = S(b.exam_date) || nowISO().slice(0, 10);
+    const type = typeOf(S(b.exam_type) || 'midterm');
+    const isBig = b.is_big === false || b.is_big === 0 ? 0 : 1;
+
+    const ay = academicYear(examDate);
+    const cohort = Number(get("SELECT value FROM settings WHERE key='exam_cohort'")?.value || 0) || (ay - (grade - 1));
+    if (!get("SELECT value FROM settings WHERE key='exam_cohort'")) {
+      run("INSERT INTO settings (key,value) VALUES ('exam_cohort',?)", String(cohort));
+    }
+    const title = S(b.title) || buildTitle(cohort, grade, term, type.label);
+
+    if (get('SELECT id FROM exam_sessions WHERE title=? AND deleted_at IS NULL', title)) {
+      return res.status(409).json({ error: '已经有一场叫「' + title + '」的考试了' });
+    }
+
+    const sid = insert('exam_sessions', {
+      title, grade, term, exam_type: type.key, exam_date: examDate, is_big: isBig,
+      note: S(b.note), created_at: nowISO(), updated_at: nowISO(),
+    });
+
+    const wanted = Array.isArray(b.subjects) ? b.subjects : [];
+    let added = 0;
+    for (const s of wanted) {
+      const subjectId = S(s.subject_id);
+      if (!subjectId) continue;
+      const label = (get('SELECT name FROM subjects WHERE id=?', subjectId) || {}).name || subjectId;
+      insert('exams', {
+        subject_id: subjectId,
+        name: title + '·' + label,
+        type: type.key,
+        exam_date: examDate,
+        full_score: num(s.full_score) ?? FULL_DEFAULT[subjectId] ?? 100,
+        my_score: num(s.my_score),
+        has_grade_point: s.has_grade_point ? 1 : 0,
+        rank_class: num(s.rank_class), class_size: num(s.class_size),
+        rank_school: num(s.rank_school), school_size: num(s.school_size),
+        rank: num(s.rank), total_students: num(s.total_students),
+        session_id: sid,
+        status: 'staging',
+        created_at: nowISO(), updated_at: nowISO(),
+      });
+      if (s.class_size) mergePreset('class_sizes', s.class_size);
+      if (s.school_size) mergePreset('school_sizes', s.school_size);
+      added++;
+    }
+    res.json({ id: sid, session: get('SELECT * FROM exam_sessions WHERE id=?', sid), added });
+  }));
+
+  r.patch('/sessions/:id', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const s = get('SELECT * FROM exam_sessions WHERE id=? AND deleted_at IS NULL', id);
+    if (!s) return res.status(404).json({ error: '这场考试不存在' });
+    const b = req.body || {};
+    const patch = {};
+    for (const k of ['title', 'term', 'exam_type', 'exam_date', 'note']) if (k in b) patch[k] = S(b[k]);
+    if ('grade' in b) patch.grade = Math.max(1, Math.min(3, Number(b.grade) || s.grade));
+    if ('is_big' in b) patch.is_big = b.is_big ? 1 : 0;
+    // 名称不手填：改了年级/学期/类型就按入学届重算
+    if (!('title' in b) && ('grade' in b || 'term' in b || 'exam_type' in b)) {
+      const cohort = Number(get("SELECT value FROM settings WHERE key='exam_cohort'")?.value || 0)
+        || (academicYear(patch.exam_date || s.exam_date) - ((patch.grade || s.grade) - 1));
+      const term = patch.term || s.term;
+      const label = typeOf(patch.exam_type || s.exam_type).label;
+      patch.title = buildTitle(cohort, patch.grade || s.grade, term, label);
+    }
+    patch.updated_at = nowISO();
+    update('exam_sessions', id, patch);
+    // 科目记录的 name / type / date 跟着走，别出现「考试叫期中、科目还叫月考」
+    const next = get('SELECT * FROM exam_sessions WHERE id=?', id);
+    run('UPDATE exams SET type=?, exam_date=?, name=? || \'·\' || (SELECT name FROM subjects WHERE id=exams.subject_id), updated_at=? WHERE session_id=?',
+      next.exam_type, next.exam_date, next.title, nowISO(), id);
+    res.json({ ok: true, session: next });
+  }));
+
+  r.delete('/sessions/:id', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    run('UPDATE exam_sessions SET deleted_at=? WHERE id=?', nowISO(), id);
+    run('UPDATE exams SET deleted_at=? WHERE session_id=?', nowISO(), id);
+    res.json({ ok: true });
+  }));
+
+  /** 往已有考次加一科（大考漏录、或小考补充） */
+  r.post('/sessions/:id/subjects', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const s = get('SELECT * FROM exam_sessions WHERE id=? AND deleted_at IS NULL', id);
+    if (!s) return res.status(404).json({ error: '这场考试不存在' });
+    const b = req.body || {};
+    const subjectId = S(b.subject_id);
+    if (!subjectId) return res.status(400).json({ error: '要选科目' });
+    if (get('SELECT id FROM exams WHERE session_id=? AND subject_id=? AND deleted_at IS NULL', id, subjectId)) {
+      return res.status(409).json({ error: '这场考试已经有这一科了' });
+    }
+    const label = (get('SELECT name FROM subjects WHERE id=?', subjectId) || {}).name || subjectId;
+    const eid = insert('exams', {
+      subject_id: subjectId, name: s.title + '·' + label, type: s.exam_type, exam_date: s.exam_date,
+      full_score: num(b.full_score) ?? FULL_DEFAULT[subjectId] ?? 100,
+      my_score: num(b.my_score), has_grade_point: b.has_grade_point ? 1 : 0,
+      rank_class: num(b.rank_class), class_size: num(b.class_size),
+      rank_school: num(b.rank_school), school_size: num(b.school_size),
+      session_id: id, status: 'staging', created_at: nowISO(), updated_at: nowISO(),
+    });
+    if (b.class_size) mergePreset('class_sizes', b.class_size);
+    if (b.school_size) mergePreset('school_sizes', b.school_size);
+    res.json({ id: eid, exam: get('SELECT * FROM exams WHERE id=?', eid) });
+  }));
+
+  r.get('/:id(\\d+)', wrap(async (req, res) => {
     const id = Number(req.params.id);
     const exam = get('SELECT * FROM exams WHERE id=? AND deleted_at IS NULL', id);
     if (!exam) return res.status(404).json({ error: '考试不存在' });
@@ -139,18 +379,21 @@ export function examsRouter() {
     res.json({ exam: { ...exam, type_label: EXAM_TYPES[exam.type] || exam.type }, pages, items });
   }));
 
-  r.patch('/:id', wrap(async (req, res) => {
+  r.patch('/:id(\\d+)', wrap(async (req, res) => {
     const id = Number(req.params.id);
     const b = req.body || {};
     const patch = {};
     for (const k of ['subject_id', 'name', 'type', 'exam_date', 'note', 'status']) if (k in b) patch[k] = S(b[k]);
-    for (const k of ['full_score', 'my_score', 'rank', 'total_students']) if (k in b) patch[k] = num(b[k]);
+    for (const k of ['full_score', 'my_score', 'rank', 'total_students', 'rank_class', 'class_size', 'rank_school', 'school_size']) {
+      if (k in b) patch[k] = num(b[k]);
+    }
+    if ('has_grade_point' in b) patch.has_grade_point = b.has_grade_point ? 1 : 0;
     patch.updated_at = nowISO();
     update('exams', id, patch);
     res.json({ ok: true, exam: get('SELECT * FROM exams WHERE id=?', id) });
   }));
 
-  r.delete('/:id', wrap(async (req, res) => {
+  r.delete('/:id(\\d+)', wrap(async (req, res) => {
     const id = Number(req.params.id);
     for (const p of all('SELECT image_path FROM exam_pages WHERE exam_id=?', id)) {
       try { unlinkSync(path.join(UPLOAD_DIR, p.image_path)); } catch { /* 已删 */ }
@@ -445,6 +688,7 @@ export function examsRouter() {
       history,
     });
   }));
+
 
   return r;
 }

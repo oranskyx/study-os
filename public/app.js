@@ -1257,6 +1257,7 @@ async function render() {
       else if (arg) html = await EX.viewDetail(Number(arg));
       else html = await EX.viewList();
     }
+    else if (name === 'session') html = await window.__exams.viewSession(Number(arg));
     else if (name === 'capture') html = await viewCapture();
     else if (name === 'bank') html = await viewBank();
     else if (name === 'q') html = await viewQuestion(Number(arg));

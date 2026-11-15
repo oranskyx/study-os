@@ -57,56 +57,84 @@ export function resetState() {
   S2.tab = 'stage';
 }
 
+// ---------------------------------------------------------------- 共用常量
+const GRADES = [['1', '高一'], ['2', '高二'], ['3', '高三']];
+const TERMS = [['up', '上学期'], ['down', '下学期']];
+const SUBJECTS = [
+  ['chinese', '语文'], ['math', '数学'], ['english', '英语'],
+  ['physics', '物理'], ['chemistry', '化学'], ['biology', '生物'],
+];
+const FULL_DEFAULT = { chinese: 150, math: 150, english: 150, physics: 100, chemistry: 100, biology: 100 };
+const subjName = (id) => (SUBJECTS.find((x) => x[0] === id) || ['', id])[1];
+
+/** 列表筛选条件（跨渲染保留） */
+const F = { grade: null, term: '', subject: 'all', type: '' };
+
 // ---------------------------------------------------------------- 列表
 export async function viewList() {
   const { api, esc } = A();
-  const rows = await api('/api/exams');
-  S2.list = rows;
+  const data = await api('/api/exams/sessions');
+  const types = await api('/api/exams/types');
+  const grade = F.grade || String(data.default_grade || 1);
+
+  const qs = ['grade=' + encodeURIComponent(grade)];
+  if (F.term) qs.push('term=' + encodeURIComponent(F.term));
+  if (F.subject && F.subject !== 'all') qs.push('subject=' + encodeURIComponent(F.subject));
+  if (F.type) qs.push('type=' + encodeURIComponent(F.type));
+  const list = await api('/api/exams/sessions?' + qs.join('&'));
+
   const h = [];
+  h.push('<div class="row between" style="margin-bottom:10px">'
+    + '<div><h2 style="margin:0;font-size:16px">考试与试卷分析</h2>'
+    + '<p class="muted" style="margin:4px 0 0">一场考试下挂六科，点进去补分数和排名。</p></div>'
+    + '<button class="btn primary" data-act="exam-new">+ 新建考试</button>'
+    + '</div>');
 
-  h.push(`
-    <div class="row between" style="margin-bottom:12px">
-      <div>
-        <h2 style="margin:0;font-size:16px">考试与试卷分析</h2>
-        <p class="muted" style="margin:4px 0 0">传原卷 / 答题卡 / 答案，识别后先暂存，你核对完再决定哪些进错题库。</p>
-      </div>
-      <button class="btn primary" data-act="exam-new">+ 新建考试</button>
-    </div>
-  `);
+  // 筛选条
+  h.push('<div class="bank-toolbar">');
+  h.push('<div class="seg">' + GRADES.map(([v, label]) =>
+    '<button class="seg-btn ' + (grade === v ? 'on' : '') + '" data-act="exam-filter" data-k="grade" data-v="' + v + '">'
+    + label + '</button>').join('') + '</div>');
+  h.push('<div class="seg">' + TERMS.map(([v, label]) =>
+    '<button class="seg-btn ' + (F.term === v ? 'on' : '') + '" data-act="exam-filter" data-k="term" data-v="' + v + '">'
+    + label + '</button>').join('')
+    + (F.term ? '<button class="seg-btn" data-act="exam-filter" data-k="term" data-v="">全部学期</button>' : '')
+    + '</div>');
+  h.push('<div class="seg">'
+    + '<button class="seg-btn ' + (F.subject === 'all' ? 'on' : '') + '" data-act="exam-filter" data-k="subject" data-v="all">全部科目</button>'
+    + SUBJECTS.map(([v, label]) => '<button class="seg-btn ' + (F.subject === v ? 'on' : '') + '" data-act="exam-filter" data-k="subject" data-v="' + v + '">' + label + '</button>').join('')
+    + '</div>');
+  h.push('<div class="seg">'
+    + '<button class="seg-btn ' + (F.type === '' ? 'on' : '') + '" data-act="exam-filter" data-k="type" data-v="">全部类型</button>'
+    + types.map((t) => '<button class="seg-btn ' + (F.type === t.key ? 'on' : '') + '" data-act="exam-filter" data-k="type" data-v="' + t.key + '">' + esc(t.label) + '</button>').join('')
+    + '<button class="seg-btn" data-act="exam-type-manage">类型管理</button>'
+    + '</div>');
+  h.push('</div>');
 
-  if (!rows.length) {
-    h.push(`<div class="card"><div class="empty">
-      还没有考试记录。<br>建一场，把这次期中的卷子传上来——原卷、答题卡、答案，有几张传几张。
-    </div></div>`);
+  if (!list.sessions.length) {
+    h.push('<div class="card"><div class="empty">这个筛选下还没有考试。<br>点右上角「新建考试」，大考选多科，小考选一科。</div></div>');
     return h.join('');
   }
 
   h.push('<div class="exam-list">');
-  for (const x of rows) {
-    const rate = x.sum_full > 0 ? Math.round((x.sum_got / x.sum_full) * 100) : null;
-    const scoreLine = x.my_score != null && x.full_score != null
-      ? fmtScore(x.my_score) + ' / ' + fmtScore(x.full_score)
-      : (x.sum_full > 0 ? fmtScore(x.sum_got) + ' / ' + fmtScore(x.sum_full) : '未录入分数');
-    h.push(`
-      <div class="exam-card" data-act="exam-open" data-id="${x.id}">
-        <div class="ec-head">
-          <span class="badge d">${esc(x.type_label || x.type)}</span>
-          <strong>${esc(x.name)}</strong>
-          <span class="spacer" style="flex:1"></span>
-          <span class="muted">${esc(x.exam_date)}</span>
-        </div>
-        <div class="ec-score">
-          <b>${scoreLine}</b>
-          ${rate != null ? '<span class="ec-rate">得分率 ' + rate + '%</span>' : ''}
-        </div>
-        <div class="ec-meta">
-          <span>${x.page_count} 张图</span>
-          <span>${x.item_count} 道题</span>
-          <span class="${x.wrong_count ? 'warn' : ''}">${x.wrong_count} 道要收</span>
-          <span class="spacer" style="flex:1"></span>
-          <button class="btn sm ghost" data-act="exam-del" data-id="${x.id}">删除</button>
-        </div>
-      </div>`);
+  for (const s of list.sessions) {
+    const rate = s.sum_full > 0 ? Math.round((s.sum_score / s.sum_full) * 100) : null;
+    const chips = s.subjects.map((e) => {
+      const got = e.my_score == null ? '—' : Math.round(e.my_score * 10) / 10;
+      return '<span class="badge d">' + esc(subjName(e.subject_id)) + ' ' + got + '/' + (e.full_score ?? '—') + '</span>';
+    }).join(' ');
+    h.push('<div class="exam-card" data-act="exam-session-open" data-id="' + s.id + '">'
+      + '<div class="ec-head"><span class="badge d">' + esc(s.type_label) + '</span>'
+      + '<strong>' + esc(s.title) + '</strong>'
+      + '<span class="spacer" style="flex:1"></span>'
+      + '<span class="muted">' + esc(s.exam_date || '') + '</span></div>'
+      + '<div class="ec-score"><b>' + (s.sum_full ? Math.round(s.sum_score * 10) / 10 + ' / ' + s.sum_full : '未录分数') + '</b>'
+      + (rate != null ? '<span class="ec-rate">总分率 ' + rate + '%</span>' : '')
+      + '</div>'
+      + '<div class="ec-meta"><span>' + s.subject_count + ' 科</span><span class="spacer" style="flex:1"></span>'
+      + '<button class="btn sm ghost" data-act="exam-session-del" data-id="' + s.id + '">删除</button></div>'
+      + '<div class="ec-chips">' + chips + '</div>'
+      + '</div>');
   }
   h.push('</div>');
   return h.join('');
@@ -114,65 +142,112 @@ export async function viewList() {
 
 // ---------------------------------------------------------------- 新建
 export async function viewNew() {
-  const { api, esc, kpOptions } = A();
-  const meta = await api('/api/meta');
-  const exams = await api('/api/exams');
-  const subjects = meta.subjects || [];
+  const { api, esc } = A();
+  const [types, presets, meta] = await Promise.all([
+    api('/api/exams/types'), api('/api/exams/presets'), api('/api/meta'),
+  ]);
   const today = meta.today;
+  const grade = String(presets.default_grade || 1);
 
-  return `
-    <div class="row" style="margin-bottom:12px">
-      <button class="btn sm ghost" data-act="exam-list">← 考试列表</button>
-    </div>
+  const rows = SUBJECTS.map(([id, label]) => '<div class="subj-row" data-subj="' + id + '">'
+    + '<label class="pick2"><input type="checkbox" data-sub="' + id + '"></label>'
+    + '<span class="subj-name">' + label + '</span>'
+    + '<label class="mini"><span>满分</span><input type="number" step="0.5" data-full="' + id + '" value="' + FULL_DEFAULT[id] + '"></label>'
+    + '<label class="mini"><span>得分</span><input type="number" step="0.5" data-score="' + id + '" placeholder="—"></label>'
+    + '</div>').join('');
 
-    <div class="card">
-      <h2><span class="dot"></span>新建一场考试</h2>
-      <div class="field-row">
-        <label class="field"><span>科目</span>
-          <select id="exSubject">${subjects.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
-        </label>
-        <label class="field"><span>考试类型</span>
-          <select id="exType">${TYPES.map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
-        </label>
-      </div>
-      <label class="field"><span>名称（例如：高一上期中 · 数学）</span>
-        <input id="exName" placeholder="高一上期中 · 数学">
-      </label>
-      <div class="field-row">
-        <label class="field"><span>考试日期</span><input id="exDate" type="date" value="${today}"></label>
-        <label class="field"><span>满分</span><input id="exFull" type="number" step="0.5" placeholder="150"></label>
-        <label class="field"><span>我的得分</span><input id="exMine" type="number" step="0.5" placeholder="112"></label>
-      </div>
-      <div class="field-row">
-        <label class="field"><span>排名（可选）</span><input id="exRank" type="number" placeholder=""></label>
-        <label class="field"><span>参考人数（可选）</span><input id="exTotal" type="number" placeholder=""></label>
-      </div>
-      <label class="field"><span>备注（可选）</span><input id="exNote" placeholder="例如：这次解析几何没做"></label>
-      <button class="btn primary block" data-act="exam-create">创建并去传图</button>
-    </div>
+  return '<div class="row" style="margin-bottom:12px"><button class="btn sm ghost" data-act="exam-list">← 考试列表</button></div>'
+    + '<div class="card"><h2><span class="dot"></span>新建考试</h2>'
+    + '<div class="field-row">'
+    + '<label class="field"><span>年级</span><select id="nGrade">' + GRADES.map(([v, l]) => '<option value="' + v + '"' + (v === grade ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></label>'
+    + '<label class="field"><span>学期</span><select id="nTerm">' + TERMS.map(([v, l]) => '<option value="' + v + '">' + l + '</option>').join('') + '</select></label>'
+    + '<label class="field"><span>类型</span><select id="nType">'
+    + types.map((t) => '<option value="' + esc(t.key) + '">' + esc(t.label) + '</option>').join('')
+    + '<option value="custom">自定义…</option></select></label>'
+    + '</div>'
+    + '<label class="field" id="nCustomWrap" style="display:none"><span>自定义类型名（填一次，以后永久出现在类型里）</span>'
+    + '<input id="nCustom" placeholder="例如：周测 / 竞赛 / 摸底"></label>'
+    + '<div class="field-row"><label class="field"><span>日期</span><input id="nDate" type="date" value="' + today + '"></label>'
+    + '<label class="field"><span>规模</span><select id="nBig"><option value="1">大考（多科）</option><option value="0">小考（一科）</option></select></label>'
+    + '</div>'
+    + '<p class="muted" style="margin:0 0 8px;font-size:12px">名称不用填，自动生成（例如 2026高一上期中）。</p>'
+    + '<div id="nSubjects">' + rows + '</div>'
+    + '<div class="field-row">'
+    + '<label class="field"><span>班级人数（常用值可选）</span><input id="nClassSize" list="dlClass" placeholder="56"><datalist id="dlClass">'
+    + [56, 2000, 2200].concat(presets.class_sizes || []).filter((v, i, a) => a.indexOf(v) === i).map((v) => '<option value="' + v + '">').join('')
+    + '</datalist></label>'
+    + '<label class="field"><span>校总人数（常用值可选）</span><input id="nSchoolSize" list="dlSchool" placeholder="2200"><datalist id="dlSchool">'
+    + [2000, 2200].concat(presets.school_sizes || []).filter((v, i, a) => a.indexOf(v) === i).map((v) => '<option value="' + v + '">').join('')
+    + '</datalist></label>'
+    + '</div>'
+    + '<button class="btn primary block" data-act="exam-create">创建</button>'
+    + '</div>';
+}
 
-    <div class="card">
-      <h2><span class="dot"></span>或者：把图传到已有考试</h2>
-      <p class="muted" style="margin:0 0 10px">
-        一次考试可能分几次拍照（先传原卷，回家再补答案），直接选那场考试继续传就行。
-      </p>
-      ${exams.length ? `
-        <label class="field"><span>选择考试</span>
-          <select id="exExisting">${exams.map((x) => `<option value="${x.id}">${esc(x.exam_date)} · ${esc(x.name)}</option>`).join('')}</select>
-        </label>
-        <button class="btn" data-act="exam-open-selected">进入这场考试</button>
-      ` : '<p class="muted">还没有考试记录，先建一场。</p>'}
-    </div>
+// ---------------------------------------------------------------- 一场考试（多科）
+export async function viewSession(id) {
+  const { api, esc } = A();
+  const d = await api('/api/exams/sessions/' + id);
+  const s = d.session;
+  const subs = d.subjects;
+  const h = [];
 
-    <div class="card">
-      <h2><span class="dot"></span>上传前的情报</h2>
-      <ul class="small" style="line-height:1.9;margin:0;padding-left:20px">
-        <li>手上有几张传几张：只有原卷也能建，只是没有得分；只有答案也能建，题干要手补。</li>
-        <li>系统会自动判断每张是原卷 / 答题卡 / 答案 / 批改卷，判错了你可以改。</li>
-        <li>答题卡优先传涂卡和手写都清楚的那张——选项识别不了会让你人工确认。</li>
-      </ul>
-    </div>
-  `;
+  h.push('<div class="row between" style="margin-bottom:10px">'
+    + '<button class="btn sm ghost" data-act="exam-list">← 考试列表</button>'
+    + '<span class="muted">' + esc(s.exam_date || '') + '</span></div>');
+
+  h.push('<div class="card"><div class="row between" style="align-items:flex-start;gap:10px">'
+    + '<div><h2 style="margin:0 0 4px"><span class="dot"></span>' + esc(s.title) + '</h2>'
+    + '<p class="muted" style="margin:0">' + esc(s.type_label) + ' · ' + (s.is_big ? '大考' : '小考') + ' · ' + subs.length + ' 科</p></div>'
+    + '<div class="row" style="gap:6px">'
+    + '<button class="btn sm" data-act="exam-session-edit" data-id="' + s.id + '">' + (S3.edit ? '收起' : '改这场考试') + '</button>'
+    + '</div></div>');
+  if (S3.edit) {
+    h.push('<div class="edit-form" style="margin-top:12px">'
+      + '<div class="field-row">'
+      + '<label class="field"><span>年级</span><select id="eGrade">' + GRADES.map(([v, l]) => '<option value="' + v + '"' + (String(s.grade) === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></label>'
+      + '<label class="field"><span>学期</span><select id="eTerm">' + TERMS.map(([v, l]) => '<option value="' + v + '"' + (s.term === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></label>'
+      + '<label class="field"><span>类型</span><select id="eType">' + (await api('/api/exams/types')).map((t) => '<option value="' + esc(t.key) + '"' + (s.exam_type === t.key ? ' selected' : '') + '>' + esc(t.label) + '</option>').join('') + '</select></label>'
+      + '<label class="field"><span>日期</span><input id="eDate" type="date" value="' + esc(s.exam_date || '') + '"></label>'
+      + '</div>'
+      + '<p class="muted" style="font-size:12px;margin:0 0 8px">改了年级/学期/类型，名称会自动重算。</p>'
+      + '<button class="btn primary sm" data-act="exam-session-save" data-id="' + s.id + '">保存这场考试</button>'
+      + '</div>');
+  }
+  h.push('</div>');
+
+  // 科目行：全部字段可改
+  for (const e of subs) {
+    h.push('<div class="card subj-card" data-eid="' + e.id + '">'
+      + '<div class="row between" style="margin-bottom:8px">'
+      + '<strong>' + esc(subjName(e.subject_id)) + '</strong>'
+      + '<div class="row" style="gap:6px">'
+      + '<button class="btn sm" data-act="exam-open" data-id="' + e.id + '">传图与分析 →</button>'
+      + '<button class="btn sm ghost" data-act="exam-subject-del" data-id="' + e.id + '">移除</button>'
+      + '</div></div>'
+      + '<div class="field-row">'
+      + '<label class="mini"><span>满分</span><input type="number" step="0.5" data-f="full_score" value="' + (e.full_score ?? '') + '"></label>'
+      + '<label class="mini"><span>得分</span><input type="number" step="0.5" data-f="my_score" value="' + (e.my_score ?? '') + '"></label>'
+      + '<label class="mini"><span>赋分</span><select data-f="has_grade_point"><option value="0"' + (e.has_grade_point ? '' : ' selected') + '>不计</option><option value="1"' + (e.has_grade_point ? ' selected' : '') + '>计赋分</option></select></label>'
+      + '</div>'
+      + '<div class="field-row">'
+      + '<label class="mini"><span>班级排名</span><input type="number" data-f="rank_class" value="' + (e.rank_class ?? '') + '"></label>'
+      + '<label class="mini"><span>班级人数</span><input type="number" data-f="class_size" value="' + (e.class_size ?? '') + '"></label>'
+      + '<label class="mini"><span>校排名</span><input type="number" data-f="rank_school" value="' + (e.rank_school ?? '') + '"></label>'
+      + '<label class="mini"><span>校总人数</span><input type="number" data-f="school_size" value="' + (e.school_size ?? '') + '"></label>'
+      + '</div>'
+      + '<button class="btn sm" data-act="exam-subject-save" data-id="' + e.id + '">保存这一科</button>'
+      + '</div>');
+  }
+
+  h.push('<div class="card"><h2><span class="dot"></span>补一科</h2>'
+    + '<div class="field-row">'
+    + '<label class="field"><span>科目</span><select id="addSubj">' + SUBJECTS.filter(([id]) => !subs.some((e) => e.subject_id === id)).map(([id, l]) => '<option value="' + id + '">' + l + '</option>').join('') + '</select></label>'
+    + '<label class="mini"><span>满分</span><input id="addFull" type="number" step="0.5" value="150"></label>'
+    + '<label class="mini"><span>得分</span><input id="addScore" type="number" step="0.5" placeholder="—"></label>'
+    + '</div><button class="btn sm" data-act="exam-add-subject" data-id="' + s.id + '">加入这场考试</button></div>');
+
+  return h.join('');
 }
 
 // ---------------------------------------------------------------- 详情
@@ -475,9 +550,178 @@ async function analysisView(id) {
 }
 
 // ---------------------------------------------------------------- 交互
+const S3 = { edit: false };
+const idxOf = () => Number((String(location.hash).split('/')[2] || '').replace(/\D.*$/, ''));
+
+/** 新建页：把勾选与填写的科目收成数组 */
+function collectNewSubjects() {
+  const big = document.getElementById('nBig')?.value !== '0';
+  const out = [];
+  for (const [id] of SUBJECTS) {
+    const cb = document.querySelector('[data-sub="' + id + '"]');
+    if (!cb) continue;
+    if (big && !cb.checked) continue;
+    if (!big && cb.checked === false && out.length) continue;
+    const full = Number(document.querySelector('[data-full="' + id + '"]')?.value) || FULL_DEFAULT[id];
+    const scoreRaw = document.querySelector('[data-score="' + id + '"]')?.value;
+    out.push({
+      subject_id: id,
+      full_score: full,
+      my_score: scoreRaw === '' || scoreRaw == null ? null : Number(scoreRaw),
+      rank_class: Number(document.getElementById('nRankClass')?.value) || null,
+      class_size: Number(document.getElementById('nClassSize')?.value) || null,
+      rank_school: Number(document.getElementById('nRankSchool')?.value) || null,
+      school_size: Number(document.getElementById('nSchoolSize')?.value) || null,
+    });
+  }
+  if (!big) {
+    // 小考：只取第一个勾选的科目
+    const picked = out.length ? [out[0]] : [];
+    return picked;
+  }
+  return out;
+}
+
+
 export async function handle(act, el) {
   const { api, toast, render } = A();
   const id = Number((location.hash.split('/')[2] || '').replace(/\D.*$/, ''));
+
+  // ---------------------------------------------------------------- 新：筛选与考次
+  if (act === 'exam-filter') {
+    F[el.dataset.k] = el.dataset.v;
+    if (el.dataset.k === 'grade') F.grade = el.dataset.v;
+    return render();
+  }
+
+  if (act === 'exam-session-open') return A().go('session/' + el.dataset.id);
+
+  if (act === 'exam-session-edit') {
+    S3.edit = !S3.edit;
+    return render();
+  }
+
+  if (act === 'exam-create') {
+    const typeSel = document.getElementById('nType')?.value;
+    const custom = document.getElementById('nCustom')?.value.trim();
+    el.disabled = true;
+    try {
+      let typeKey = typeSel;
+      if (typeSel === 'custom') {
+        if (!custom) { el.disabled = false; return toast('选了自定义就把类型名填上', 'warn'); }
+        const made = await api('/api/exams/types', { method: 'POST', body: { label: custom } });
+        typeKey = made.type.key;
+      }
+      const subjects = collectNewSubjects();
+      if (!subjects.length) { el.disabled = false; return toast('至少选一科', 'warn'); }
+      const r = await api('/api/exams/sessions', {
+        method: 'POST',
+        body: {
+          grade: document.getElementById('nGrade')?.value,
+          term: document.getElementById('nTerm')?.value,
+          exam_type: typeKey,
+          exam_date: document.getElementById('nDate')?.value,
+          is_big: document.getElementById('nBig')?.value !== '0',
+          subjects,
+        },
+      });
+      toast('已创建：' + r.session.title, 'ok');
+      A().go('session/' + r.id);
+    } catch (e) {
+      el.disabled = false;
+      toast(e.message, 'err');
+      return true;
+    }
+    return true;
+  }
+
+  if (act === 'exam-session-save') {
+    const id = el.dataset.id;
+    el.disabled = true;
+    try {
+      await api('/api/exams/sessions/' + id, {
+        method: 'PATCH',
+        body: {
+          grade: document.getElementById('eGrade')?.value,
+          term: document.getElementById('eTerm')?.value,
+          exam_type: document.getElementById('eType')?.value,
+          exam_date: document.getElementById('eDate')?.value,
+        },
+      });
+      S3.edit = false;
+      toast('已保存', 'ok');
+    } catch (e) { toast(e.message, 'err'); el.disabled = false; return true; }
+    return render();
+  }
+
+  if (act === 'exam-session-del') {
+    if (!confirm('删掉这场考试？下面的科目记录一起删，已收进错题库的题不受影响。')) return true;
+    await api('/api/exams/sessions/' + el.dataset.id, { method: 'DELETE' });
+    toast('已删除', 'ok');
+    return A().go('exams');
+  }
+
+  if (act === 'exam-subject-save') {
+    const card = el.closest('.subj-card');
+    const body = {};
+    for (const inp of card.querySelectorAll('[data-f]')) {
+      const k = inp.dataset.f;
+      body[k] = inp.value === '' ? null : (k === 'has_grade_point' ? Number(inp.value) : Number(inp.value));
+    }
+    el.disabled = true;
+    try {
+      await api('/api/exams/' + el.dataset.id, { method: 'PATCH', body });
+    } catch (err) {
+      toast(err.message, 'err');
+      el.disabled = false;
+      return true;
+    }
+    toast('这一科已保存', 'ok');
+    return render();
+  }
+
+  if (act === 'exam-subject-del') {
+    if (!confirm('把这一科从这场考试里移除？（已传的图和题也会一起删）')) return true;
+    await api('/api/exams/' + el.dataset.id, { method: 'DELETE' });
+    toast('已移除', 'ok');
+    return render();
+  }
+
+  if (act === 'exam-add-subject') {
+    const subject_id = document.getElementById('addSubj')?.value;
+    if (!subject_id) return toast('没有可加的科目了', 'warn');
+    const body = {
+      subject_id,
+      full_score: Number(document.getElementById('addFull')?.value) || FULL_DEFAULT[subject_id],
+      my_score: document.getElementById('addScore')?.value === '' ? null : Number(document.getElementById('addScore')?.value),
+    };
+    el.disabled = true;
+    try {
+      await api('/api/exams/sessions/' + el.dataset.id + '/subjects', { method: 'POST', body });
+      toast('已加入', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+    return render();
+  }
+
+  if (act === 'exam-type-manage') {
+    const types = await api('/api/exams/types');
+    const cur = types.map((t) => t.label + (t.builtin ? '（内置）' : '')).join('\n');
+    const pick = prompt('现有类型：\n' + cur + '\n\n输入要改名/新增的类型名（留空取消）', '');
+    if (!pick) return true;
+    const target = types.find((t) => t.label === pick);
+    if (target) {
+      const next = prompt('把「' + target.label + '」改成：', target.label);
+      if (next && next !== target.label) {
+        await api('/api/exams/types/' + target.id, { method: 'PATCH', body: { label: next } });
+        toast('已改名', 'ok');
+      }
+    } else {
+      await api('/api/exams/types', { method: 'POST', body: { label: pick } });
+      toast('已新增类型', 'ok');
+    }
+    return render();
+  }
+
 
   if (act === 'exam-list') return A().go('exams');
   if (act === 'exam-new') return A().go('exams/new');
@@ -683,4 +927,4 @@ export function bindEvents() {
   });
 }
 
-window.__exams = { viewList, viewNew, viewDetail, handle, bindEvents, resetState };
+window.__exams = { viewList, viewNew, viewSession, viewDetail, handle, bindEvents, resetState };

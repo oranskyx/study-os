@@ -247,10 +247,59 @@ CREATE TABLE IF NOT EXISTS exam_items (
   updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_exam_item ON exam_items(exam_id);
+
+-- 考试类型（内置 + 用户自定义，可编辑）
+CREATE TABLE IF NOT EXISTS exam_types (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  key     TEXT UNIQUE NOT NULL,
+  label   TEXT NOT NULL,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  sort    INTEGER NOT NULL DEFAULT 100
+);
+
+-- 一场考试（考次）：一次期中/月考/小测，下面挂若干科目
+CREATE TABLE IF NOT EXISTS exam_sessions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  title      TEXT NOT NULL,
+  grade      INTEGER,
+  term       TEXT,
+  exam_type  TEXT,
+  exam_date  TEXT,
+  is_big     INTEGER NOT NULL DEFAULT 1,
+  note       TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT
+);
+
+-- 用户攒出来的常用值（参考人数等），可编辑
+CREATE TABLE IF NOT EXISTS exam_presets (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
 `);
 
 // 旧库补列：错题要能反查是哪次考试的哪道题
 const eiCols = new Set(db.prepare("PRAGMA table_info('exam_items')").all().map((c) => c.name));
+// exams 补列：一场考试下的科目、赋分、班级/校排名
+const exCols = new Set(db.prepare("PRAGMA table_info('exams')").all().map((c) => c.name));
+for (const [col, ddl] of [
+  ['session_id', 'INTEGER'],
+  ['has_grade_point', 'INTEGER NOT NULL DEFAULT 0'],
+  ['rank_class', 'INTEGER'],
+  ['class_size', 'INTEGER'],
+  ['rank_school', 'INTEGER'],
+  ['school_size', 'INTEGER'],
+]) {
+  if (!exCols.has(col)) db.exec('ALTER TABLE exams ADD COLUMN ' + col + ' ' + ddl);
+}
+db.exec('CREATE INDEX IF NOT EXISTS ix_exam_session ON exams(session_id)');
+// 内置考试类型：期中/期末/月考（用户可以在界面里改名或新增）
+for (const [key, label, sort] of [['midterm', '期中', 10], ['final', '期末', 20], ['monthly', '月考', 30]]) {
+  db.prepare('INSERT OR IGNORE INTO exam_types (key,label,builtin,sort) VALUES (?,?,1,?)').run(key, label, sort);
+}
+
+
 if (!eiCols.has('marks_json')) db.exec('ALTER TABLE exam_items ADD COLUMN marks_json TEXT');
 
 const qCols = new Set(db.prepare("PRAGMA table_info('questions')").all().map((c) => c.name));

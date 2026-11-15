@@ -188,5 +188,61 @@ if (!MOCK) {
   await api('/api/exams/' + ex.id, { method: 'DELETE' });
 }
 
+
+// ---------------------------------------------------------------- 考次（一场考试多科）
+{
+  const types = (await api('/api/exams/types')).j;
+  ok('内置考试类型存在（期中/期末/月考）', types.length >= 3, types.map((t) => t.label).join(','));
+
+  const made = await api('/api/exams/types', { method: 'POST', body: { label: '自检周测' } });
+  ok('可以新增自定义类型', made.status === 200 && made.j.type?.label === '自检周测');
+  const renamed = await api('/api/exams/types/' + made.j.type.id, { method: 'PATCH', body: { label: '自检周测(改)' } });
+  ok('类型可以改名', renamed.j.type?.label === '自检周测(改)');
+
+  const ses = await api('/api/exams/sessions', { method: 'POST', body: {
+    grade: 1, term: 'up', exam_type: made.j.type.key, exam_date: '2026-09-20', is_big: true,
+    subjects: [
+      { subject_id: 'math', my_score: 130, rank_class: 3, class_size: 56, rank_school: 120, school_size: 2200 },
+      { subject_id: 'physics', my_score: 88, has_grade_point: true },
+    ],
+  } });
+  ok('建一场大考（多科）', ses.status === 200 && ses.j.added === 2, 'added=' + ses.j.added);
+  const sid = ses.j.id;
+  ok('标题自动生成（年份+年级+学期+类型）', /^\d{4}高一上/.test(ses.j.session.title), ses.j.session.title);
+  ok('同名考试会被拒绝', (await api('/api/exams/sessions', { method: 'POST', body: { grade: 1, term: 'up', exam_type: made.j.type.key, exam_date: '2026-09-20', subjects: [{ subject_id: 'math' }] } })).status === 409);
+
+  const detail = await api('/api/exams/sessions/' + sid);
+  ok('考次详情列出两科', detail.j.subjects.length === 2, JSON.stringify(detail.j.subjects.map((s) => s.subject_id)));
+  const mathRow = detail.j.subjects.find((s) => s.subject_id === 'math');
+  ok('满分按科目自动填（数学 150 / 物理 100）',
+    mathRow?.full_score === 150 && detail.j.subjects.find((s) => s.subject_id === 'physics')?.full_score === 100);
+  ok('班级/校排名存下来了', mathRow?.rank_class === 3 && mathRow?.class_size === 56 && mathRow?.rank_school === 120);
+  ok('赋分开关存下来了', detail.j.subjects.find((s) => s.subject_id === 'physics')?.has_grade_point === 1);
+
+  const addS = await api('/api/exams/sessions/' + sid + '/subjects', { method: 'POST', body: { subject_id: 'chemistry', my_score: 77 } });
+  ok('可以往已有考试里补一科', addS.status === 200 && addS.j.exam?.subject_id === 'chemistry');
+  ok('同一场不能重复加同一科', (await api('/api/exams/sessions/' + sid + '/subjects', { method: 'POST', body: { subject_id: 'chemistry' } })).status === 409);
+
+  const upd = await api('/api/exams/' + mathRow.id, { method: 'PATCH', body: { my_score: 140, rank_class: 1, has_grade_point: 1 } });
+  ok('单科参数可以改（手滑能救）', upd.j.exam?.my_score === 140 && upd.j.exam?.rank_class === 1 && upd.j.exam?.has_grade_point === 1);
+
+  const ses2 = await api('/api/exams/sessions/' + sid, { method: 'PATCH', body: { grade: 2, term: 'down' } });
+  ok('整场考试的年级/学期能改，标题跟着重算',
+    /^\d{4}高二下/.test(ses2.j.session.title), ses2.j.session.title);
+
+  const filtered = await api('/api/exams/sessions?grade=2&term=down');
+  ok('按年级+学期筛选能命中', filtered.j.sessions.some((x) => x.id === sid));
+  const notMatch = await api('/api/exams/sessions?grade=3');
+  ok('筛选不匹配时不会出现', !notMatch.j.sessions.some((x) => x.id === sid));
+  const bySubject = await api('/api/exams/sessions?subject=chemistry');
+  ok('按科目筛选能命中', bySubject.j.sessions.some((x) => x.id === sid));
+
+  const presets = await api('/api/exams/presets');
+  ok('参考人数常用值被记住', (presets.j.class_sizes || []).includes(56), JSON.stringify(presets.j.class_sizes));
+
+  await api('/api/exams/sessions/' + sid, { method: 'DELETE' });
+  const after = await api('/api/exams/sessions');
+  ok('删考试后列表里没有了', !after.j.sessions.some((x) => x.id === sid));
+}
 console.log('\n  试卷分析：通过 ' + pass + '   失败 ' + fail);
 process.exit(fail ? 1 : 0);
