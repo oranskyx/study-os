@@ -222,7 +222,7 @@ const TABS = [
   ['bank', '错题库'],
   ['exams', '考试'],
   ['sheet', '复习单'],
-  ['report', '周报'],
+  ['report', '报表'],
   ['settings', '设置'],
 ];
 
@@ -965,11 +965,17 @@ async function viewReport() {
   }
 
   h.push(`
-    <div class="row" style="margin-bottom:12px">
-      <button class="btn sm ${monthMode ? '' : 'primary'}" data-act="report-mode" data-mode="week">本周</button>
-      <button class="btn sm ${monthMode ? 'primary' : ''}" data-act="report-mode" data-mode="month">本月</button>
-      <span class="spacer" style="flex:1"></span>
-      <span class="muted">${esc(period)}</span>
+    <div class="card" style="padding:12px 14px;margin-bottom:12px">
+      <div class="row between" style="gap:8px">
+        <div class="seg" style="margin:0">
+          <button class="seg-btn ${monthMode ? '' : 'on'}" data-act="report-mode" data-mode="week">周报</button>
+          <button class="seg-btn ${monthMode ? 'on' : ''}" data-act="report-mode" data-mode="month">月报</button>
+        </div>
+        <span class="muted">${esc(period)}</span>
+      </div>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">
+        周报看这一周做了什么；月报看结构性问题（失分分布、近 6 个月趋势、环比）。
+      </p>
     </div>
   `);
 
