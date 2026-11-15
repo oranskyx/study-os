@@ -231,6 +231,38 @@ if (navBtn) {
   check('录入页有文件选择控件', Boolean($('#capFile')));
 }
 
+// ---------------------------------------------------------------- 周报生成失败时不能把按钮卡死
+// 以前 report-gen 没有 try/finally：一次失败后 busy 永远是 true，按钮一直禁用，
+// 用户看到的就是「点了没反应」。这里人为让 POST 失败，验证：错误留在页面上、按钮恢复可点。
+{
+  window.location.hash = '#/report';
+  window.dispatchEvent(new window.HashChangeEvent('hashchange'));
+  await waitFor(() => window.document.querySelector('#main')?.dataset?.view === 'report');
+  await waitFor(() => Boolean(window.document.querySelector('[data-act="report-gen"]')));
+
+  const realFetch = window.fetch;
+  window.fetch = (url, opt = {}) => {
+    if (String(url).includes('/api/report') && opt.method === 'POST') {
+      return Promise.reject(new Error('模拟失败：账户余额不足（402）'));
+    }
+    return realFetch(url, opt);
+  };
+
+  const gen = window.document.querySelector('[data-act="report-gen"]');
+  gen.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const shown = await waitFor(
+    () => (window.document.querySelector('#main').textContent || '').includes('上次生成失败'),
+    { timeout: 8000 }
+  );
+  window.fetch = realFetch;
+
+  check('生成失败后错误留在页面上', shown,
+    (window.document.querySelector('#main').textContent || '').slice(0, 80));
+  const btn = window.document.querySelector('[data-act="report-gen"]');
+  check('生成失败后按钮没有卡在禁用态', Boolean(btn) && !btn.disabled,
+    btn ? ('disabled=' + btn.disabled) : '按钮不见了');
+}
+
 // ---------------------------------------------------------------- 打印页
 {
   const meta = await globalThis.fetch(`${BASE}/api/meta`).then((r) => r.json());

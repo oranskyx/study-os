@@ -187,7 +187,7 @@ const S = {
   cap: { subject: 'math', busy: null, drafts: [], page: null, error: null, note: '' },
   bank: { status: 'all', q: '', mode: 'list', sel: [] },
   sheet: { results: {}, busy: false },
-  report: { mode: 'week', busy: false },
+  report: { mode: 'week', busy: false, error: null },
   methodEdit: null,
   settings: {
     loaded: false,
@@ -957,6 +957,13 @@ async function viewReport() {
   const period = monthMode ? d.month : d.week;
   const h = [];
 
+  // 失败原因留在页面上：toast 4 秒就没了，用户只会觉得"点了没反应"
+  if (S.report.error) {
+    h.push('<div class="hint err" style="margin-bottom:12px"><strong>上次生成失败：</strong>' +
+      esc(S.report.error) +
+      '<br><span class="small">常见原因：key 失效、余额不足（402）、限流（429）。去「设置」点「测试写文」能直接看出是哪一种。</span></div>');
+  }
+
   h.push(`
     <div class="row" style="margin-bottom:12px">
       <button class="btn sm ${monthMode ? '' : 'primary'}" data-act="report-mode" data-mode="week">本周</button>
@@ -1584,10 +1591,17 @@ document.addEventListener('click', async (e) => {
     if (act === 'report-gen') {
       const monthMode = (S.report.mode || 'week') === 'month';
       S.report.busy = true;
+      S.report.error = null;
       await render();
-      await api(monthMode ? '/api/report/monthly' : '/api/report', { method: 'POST', body: {} });
-      S.report.busy = false;
-      toast(monthMode ? '月报已生成' : '周报已生成', 'ok');
+      try {
+        await api(monthMode ? '/api/report/monthly' : '/api/report', { method: 'POST', body: {} });
+        toast(monthMode ? '月报已生成' : '周报已生成', 'ok');
+      } catch (err) {
+        // 失败必须落在页面上：toast 4 秒就没了，用户只会看到"点了没反应"
+        S.report.error = err.message || '生成失败';
+      } finally {
+        S.report.busy = false;
+      }
       return render();
     }
 
