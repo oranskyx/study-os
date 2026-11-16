@@ -228,6 +228,26 @@ if (!MOCK) {
   ok('校人数 2214 进了候选项', (ps.j.school_sizes || []).includes(2214), JSON.stringify(ps.j.school_sizes));
 
   await api('/api/exams/sessions/' + pid2, { method: 'DELETE' });
+
+  // 分数口径：卷面得分率不能拿"按题累计"冒充
+  {
+    const made = await api('/api/exams/sessions', {
+      method: 'POST',
+      body: { grade: 1, term: 'up', exam_type: 'monthly', exam_date: '2026-10-05',
+        subjects: [{ subject_id: 'math', full_score: 150, my_score: 120 }] },
+    });
+    const sid = made.j.id;
+    const eid = (await api('/api/exams/sessions/' + sid)).j.subjects[0].id;
+    // 造两条分值加起来超过卷面的题，模拟"大题小题都列了"
+    await api('/api/exams/' + eid + '/items', { method: 'POST', body: { q_no: '1', qtype: 'choice', stem: '测试题一', score_full: 30, score_got: 30, verdict: 'right' } });
+    await api('/api/exams/' + eid + '/items', { method: 'POST', body: { q_no: '2', qtype: 'short', stem: '测试题二', score_full: 150, score_got: 60, verdict: 'partial' } });
+    const an = await api('/api/exams/' + eid + '/analysis');
+    const t = an.j.totals;
+    ok('卷面得分率用卷面分数算，不用按题累计', t.paper_rate === 80, 'paper_rate=' + t.paper_rate + ' 按题 rate=' + t.rate);
+    ok('题目分值合计超出卷面时给出 mismatch 标记', t.mismatch === true || t.mismatch === 1, JSON.stringify({ full: t.full, full_score: t.full_score, mismatch: t.mismatch }));
+    await api('/api/exams/sessions/' + sid, { method: 'DELETE' });
+  }
+
 // ---------------------------------------------------------------- 考次（一场考试多科）
 {
   const types = (await api('/api/exams/types')).j;

@@ -1389,7 +1389,7 @@ document.addEventListener('click', async (e) => {
     if (act === 'nav') return go(el.dataset.to);
 
     // 考试模块的交互（exams.js）
-    if (window.__exams && /^exam-/.test(act)) {
+    if (window.__exams && /^(exam-|sheet-|mark-)/.test(act)) {
       const handled = await window.__exams.handle(act, el, e);
       if (handled !== false) return;
     }

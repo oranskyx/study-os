@@ -702,12 +702,18 @@ export function examsRouter() {
       exam: { ...exam, type_label: EXAM_TYPES[exam.type] || exam.type },
       totals: {
         items: items.length, wrong, partial, right, unknown,
+        // 按题累计：只统计识别出来、且带分值的题
         full: Math.round(full * 10) / 10,
         got: Math.round(got * 10) / 10,
         lost: Math.round((full - got) * 10) / 10,
         rate: pct(got, full),
+        // 卷面：以老师给的分和卷面满分为准（更权威，按题累计容易重复计分）
         my_score: exam.my_score,
         full_score: exam.full_score,
+        paper_rate: pct(exam.my_score, exam.full_score),
+        // 题目分值合计和卷面满分对不上 → 大概率重复计分（大题和它的小题都列了）
+        mismatch: Boolean(full > 0 && exam.full_score > 0 && Math.abs(full - exam.full_score) > Math.max(2, exam.full_score * 0.05)),
+        over_by: Math.round((full - (exam.full_score || 0)) * 10) / 10,
       },
       by_kp: byKp.slice(0, 12),
       by_type: byType,

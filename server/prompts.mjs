@@ -48,8 +48,20 @@ export function extractMessages({ imageDataUrl, subjectId, kpList, extraNote = '
 ${kpText}
 
 ${extraNote ? `学生补充说明：${extraNote}\n` : ''}
+【分值铁律】这一条最容易出错，务必遵守：
+- 一张卷子的所有 question.score_full 加起来，必须等于卷面满分。
+  你拿不准卷面满分时，就按题型常识估：选择题 3 分、填空 3 分、古诗文默写 2 分、
+  现代文阅读小题 4~6 分、作文 60 分（语文）/ 25 分（英语）。
+- **一道大题下面有小问时，只列最小可判分的那个单元**（小问），
+  不要再额外列一条「大题」把它的总分也算进去 —— 否则分数翻倍。
+  例：现代文阅读 Ⅰ 共 3 小题（4+4+4），就只列 3 条，各 4 分，不要再来一条「现代文阅读 Ⅰ 12 分」。
+- 只列**确实出现在这张图上**的题。图上没有的题号不要编。
+- score_full 与 score_got 同时给：满分和实际得分。没有批改痕迹时 score_got 填 null，
+  verdict 填 unknown，不要自己猜一个分数。
 输出严格 JSON，格式：
 {
+
+
   "questions": [
     {
       "stem": "题干全文（LaTeX 公式已转好；图用 〔图：…〕 的文字描述代替），包含所有小问",

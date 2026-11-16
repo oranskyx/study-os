@@ -466,6 +466,50 @@ function stageView(d) {
 
 // ---------------------------------------------------------------- ② 人工核对
 /** 答题卡可视化：每个选项三种状态（未涂/黑笔/红笔）+ 老师批改标记 */
+/**
+ * 答题卡总览：真卷子上的选择题是**一整块**（题号 × ABCD 的格子），
+ * 不是每题一张小卡。这里按同样形状渲染，点格子直接改答案，
+ * 旁边再给一格手写（断句、多选、填字母这类）。
+ */
+function answerSheetBlock(items) {
+  const { esc } = A();
+  const choices = items.filter((it) => it.qtype === 'choice' || (it.q_no && it.options_json));
+  if (!choices.length) return '';
+
+  const cell = (it, L) => {
+    let m = {};
+    try { m = it.marks_json ? JSON.parse(it.marks_json) : {}; } catch { m = {}; }
+    const picked = String(it.my_answer || '').toUpperCase().includes(L);
+    const black = (m.black || []).includes(L);
+    const red = (m.red || []).includes(L);
+    const cls = ['sheet-cell'];
+    if (picked) cls.push('picked');
+    if (black) cls.push('mine');
+    if (red) cls.push('red');
+    return '<button type="button" class="' + cls.join(' ') + '" data-act="sheet-pick"'
+      + ' data-iid="' + it.id + '" data-l="' + L + '" aria-label="第 ' + (it.q_no || '?') + ' 题选 ' + L + '">'
+      + (picked ? '●' : '') + '</button>';
+  };
+
+  const rows = choices.map((it) => '<div class="sheet-row">'
+    + '<span class="sheet-no">' + esc(it.q_no || '·') + '</span>'
+    + ['A', 'B', 'C', 'D'].map((L) => cell(it, L)).join('')
+    + '<input class="sheet-hand" data-act="sheet-hand" data-iid="' + it.id + '"'
+    + ' value="' + esc(it.my_answer || '') + '" placeholder="手写" spellcheck="false">'
+    + '</div>').join('');
+
+  return '<div class="card"><h2><span class="dot"></span>答题卡总览</h2>'
+    + '<p class="muted" style="margin:0 0 10px;font-size:12.5px">'
+    + '点格子直接选答案；右边一格填手写的（断句、多选、写字母都填这里）。点已选的再点一次取消。</p>'
+    + '<div class="sheet">'
+    + '<div class="sheet-row sheet-head"><span class="sheet-no">题</span>'
+    + '<span class="sheet-cell head">A</span><span class="sheet-cell head">B</span>'
+    + '<span class="sheet-cell head">C</span><span class="sheet-cell head">D</span>'
+    + '<span class="sheet-hand head">手写</span></div>'
+    + rows
+    + '</div></div>';
+}
+
 function marksEditor(it) {
   let m = {};
   try { m = it.marks_json ? JSON.parse(it.marks_json) : {}; } catch { m = {}; }
@@ -514,6 +558,8 @@ async function reviewView(d) {
   }
 
   const need = items.filter((x) => x.verdict === 'wrong' || x.verdict === 'partial').length;
+  h.push(answerSheetBlock(items));   // 涂卡区：真卷子上的选择题是一整块
+
   h.push(`
     <div class="card">
       <h2><span class="dot"></span>核对与修正</h2>
@@ -599,21 +645,38 @@ async function analysisView(id) {
   const a = await api('/api/exams/' + id + '/analysis');
   S2.analysis = a;
   const t = a.totals;
+  // 卷面得分率自己算：不依赖服务端字段，改完前端立刻生效（不必重启服务）
+  const paperRate = t.paper_rate != null ? t.paper_rate
+    : (t.my_score != null && t.full_score > 0 ? Math.round((t.my_score / t.full_score) * 100) : null);
+  // 题目分值合计 vs 卷面满分：差太多就是重复计分（大题和小题都列了）
+  const overBy = Math.round(((t.full || 0) - (t.full_score || 0)) * 10) / 10;
+  const mismatch = Boolean(t.full > 0 && t.full_score > 0 && Math.abs(t.full - t.full_score) > Math.max(2, t.full_score * 0.05));
   const h = [];
 
   h.push(`
     <div class="card">
       <h2><span class="dot"></span>这场考试的账面</h2>
       <div class="stats">
-        <div class="s"><div class="n">${fmtScore(t.my_score != null ? t.my_score : t.got)}</div><div class="l">得分${t.full_score ? ' / ' + fmtScore(t.full_score) : ''}</div></div>
-        <div class="s done"><div class="n">${t.rate == null ? '—' : t.rate + '%'}</div><div class="l">得分率（已识别题）</div></div>
+        <div class="s"><div class="n">${fmtScore(t.my_score != null ? t.my_score : t.got)}</div><div class="l">卷面得分${t.full_score ? ' / ' + fmtScore(t.full_score) : ''}</div></div>
+        <div class="s done"><div class="n">${paperRate != null ? paperRate + '%' : (t.rate == null ? '—' : t.rate + '%')}</div><div class="l">卷面得分率</div></div>
         <div class="s key"><div class="n">${t.wrong + t.partial}</div><div class="l">错题 + 部分对</div></div>
-        <div class="s due"><div class="n">${t.lost}</div><div class="l">丢了 ${t.lost} 分</div></div>
+        <div class="s due"><div class="n">${t.lost}</div><div class="l">按题丢分</div></div>
       </div>
       <p class="muted" style="margin:10px 0 0;font-size:12.5px">
         识别到 ${t.items} 道题：做对 ${t.right}、做错 ${t.wrong}、部分对 ${t.partial}、未判 ${t.unknown}。
         ${t.unknown ? '「未判」是因为页面上没有批改痕迹，你在核对页手动标一下更准。' : ''}
       </p>
+      ${mismatch ? '<div class="hint warn" style="margin-top:10px">'
+        + '<strong>题目分值合计和卷面总分对不上：</strong>'
+        + '识别出来的题加起来是 ' + fmtScore(t.full) + ' 分，卷面是 ' + fmtScore(t.full_score) + ' 分'
+        + '（多出 ' + fmtScore(overBy) + '）。'
+        + '<br>常见原因：一道大题和它下面的小题都被单独列了出来，分数重复算了。'
+        + '<br>去「人工核对」页把重复的那几道删掉，「按题丢分」和失分榜就准了。'
+        + '卷面得分率不受影响——它直接用你填的分数算。'
+        + '</div>' : ''}
+      ${(t.my_score == null && t.full_score == null) && t.rate != null
+        ? '<div class="hint info" style="margin-top:10px">还没填卷面得分。去「考试列表 → 这场考试」把每科得分填上，得分率会更准。</div>'
+        : ''}
     </div>
   `);
 
@@ -990,6 +1053,37 @@ export async function handle(act, el) {
     return true;
   }
 
+  if (act === 'sheet-pick') {
+    const iid = Number(el.dataset.iid);
+    const L = el.dataset.l;
+    const it = (S2.detail?.items || []).find((x) => Number(x.id) === iid);
+    if (!it) return true;
+    const cur = String(it.my_answer || '').toUpperCase();
+    // 点已选的再点一次 = 取消
+    const next = cur === L ? '' : L;
+    it.my_answer = next;
+    try {
+      await api('/api/exams/items/' + iid, { method: 'PATCH', body: { my_answer: next || null } });
+      render();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+    return true;
+  }
+
+  if (act === 'sheet-hand') {
+    const iid = Number(el.dataset.iid);
+    const v = String(el.value || '').trim();
+    const it = (S2.detail?.items || []).find((x) => Number(x.id) === iid);
+    if (it) it.my_answer = v || null;
+    try {
+      await api('/api/exams/items/' + iid, { method: 'PATCH', body: { my_answer: v || null } });
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+    return true;
+  }
+
   if (act === 'exam-extract') {
     const pid = Number(el.dataset.pid);
     el.disabled = true;
@@ -1129,29 +1223,46 @@ function paintJobsBadge() {
  * 识别一张图：故意不 await，让用户可以立刻切到别的科目。
  * 完成后只有当人还停在这场考试上才重渲染——否则会把别处正在填的内容冲掉。
  */
-async function extractOne(pid, examId) {
+async function extractOne(pid, examId, attempt = 1) {
   if (JOBS.has(pid)) return;
   JOBS.set(pid, examId);
   paintJobsBadge();
   try {
     const r = await api('/api/exams/pages/' + pid + '/extract', { method: 'POST', body: {} });
     toast('识别到 ' + r.staged + ' 道题', 'ok');
-  } catch (e) {
-    toast('识别失败：' + e.message, 'err');
-  } finally {
     JOBS.delete(pid);
+  } catch (e) {
+    // 失败最多试两次：第二次仍失败才真的放弃
+    if (attempt < 2) {
+      await new Promise((r2) => setTimeout(r2, 1500));
+      JOBS.delete(pid);
+      paintJobsBadge();
+      return extractOne(pid, examId, attempt + 1);
+    }
+    toast('识别失败（已试 2 次）：' + e.message, 'err');
+    JOBS.delete(pid);
+  } finally {
     paintJobsBadge();
     if (hashIsExam(examId)) render();
   }
 }
 
-/** 一次识别多张：排队跑，避免同时打太多请求把模型限流 */
+/** 并发跑，默认 3 张同时识别；排队跑剩下的 */
+const EXTRACT_CONCURRENCY = 3;
+
 async function extractQueue(pids, examId) {
-  for (const pid of pids) {
-    if (!JOBS.has(pid)) await extractOne(pid, examId);
-  }
+  const queue = [...pids];
+  const worker = async () => {
+    while (queue.length) {
+      const pid = queue.shift();
+      if (!JOBS.has(pid)) await extractOne(pid, examId);
+    }
+  };
+  const n = Math.min(EXTRACT_CONCURRENCY, queue.length);
+  await Promise.all(Array.from({ length: n }, () => worker()));
   if (hashIsExam(examId)) toast('这一科的图都识别完了', 'ok');
 }
+
 
 export function bindEvents() {
 
