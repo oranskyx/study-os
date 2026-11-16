@@ -991,25 +991,20 @@ export async function handle(act, el) {
   }
 
   if (act === 'exam-extract') {
+    const pid = Number(el.dataset.pid);
     el.disabled = true;
     el.textContent = '识别中…';
-    try {
-      const r = await api('/api/exams/pages/' + el.dataset.pid + '/extract', { method: 'POST', body: {} });
-      toast('识别到 ' + r.staged + ' 道题', 'ok');
-    } catch (e) { toast(e.message, 'err'); }
-    return render();
+    extractOne(pid, id);            // 不 await：可以立刻切走
+    return true;
   }
 
   if (act === 'exam-extract-all') {
+    const todo = (S2.detail?.pages || []).filter((p) => p.status !== 'done' && !JOBS.has(p.id));
+    if (!todo.length) return toast('没有待识别的图了', 'warn');
     el.disabled = true;
-    const d = S2.detail;
-    const todo = (d?.pages || []).filter((p) => p.status !== 'done');
-    for (let i = 0; i < todo.length; i++) {
-      el.textContent = '识别中 ' + (i + 1) + '/' + todo.length;
-      try { await api('/api/exams/pages/' + todo[i].id + '/extract', { method: 'POST', body: {} }); }
-      catch (e) { toast('第 ' + (i + 1) + ' 张失败：' + e.message, 'err'); }
-    }
-    toast('识别完成，点「合并到题目列表」', 'ok');
+    el.textContent = '已开始 ' + todo.length + ' 张';
+    extractQueue(todo.map((p) => p.id), id);   // 后台排队跑
+    toast('已开始识别 ' + todo.length + ' 张，可以先去录别的科目', 'ok');
     return render();
   }
 
@@ -1105,6 +1100,57 @@ export async function handle(act, el) {
   }
 
   return false;
+}
+
+
+/** 正在后台识别的图片：pageId → examId。用它在任何页面都能显示进度、也不误刷新别的页 */
+const JOBS = new Map();
+
+const hashIsExam = (examId) => String(location.hash || '').startsWith('#/exams/' + examId);
+
+/** 角落里的小提示：告诉你后台还有几张在识别 */
+function paintJobsBadge() {
+  let el = document.getElementById('jobsBadge');
+  if (!JOBS.size) {
+    if (el) el.remove();
+    return;
+  }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'jobsBadge';
+    el.className = 'jobs-badge';
+    el.addEventListener('click', () => { el.remove(); });
+    document.body.appendChild(el);
+  }
+  el.textContent = '后台识别中 ' + JOBS.size + ' 张（可以先去别的科目）';
+}
+
+/**
+ * 识别一张图：故意不 await，让用户可以立刻切到别的科目。
+ * 完成后只有当人还停在这场考试上才重渲染——否则会把别处正在填的内容冲掉。
+ */
+async function extractOne(pid, examId) {
+  if (JOBS.has(pid)) return;
+  JOBS.set(pid, examId);
+  paintJobsBadge();
+  try {
+    const r = await api('/api/exams/pages/' + pid + '/extract', { method: 'POST', body: {} });
+    toast('识别到 ' + r.staged + ' 道题', 'ok');
+  } catch (e) {
+    toast('识别失败：' + e.message, 'err');
+  } finally {
+    JOBS.delete(pid);
+    paintJobsBadge();
+    if (hashIsExam(examId)) render();
+  }
+}
+
+/** 一次识别多张：排队跑，避免同时打太多请求把模型限流 */
+async function extractQueue(pids, examId) {
+  for (const pid of pids) {
+    if (!JOBS.has(pid)) await extractOne(pid, examId);
+  }
+  if (hashIsExam(examId)) toast('这一科的图都识别完了', 'ok');
 }
 
 export function bindEvents() {

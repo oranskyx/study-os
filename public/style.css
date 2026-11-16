@@ -980,3 +980,21 @@ body.tour-open { overflow: hidden; }
 }
 .subj-pick input { width: 18px; height: 18px; margin: 0; accent-color: var(--ink); }
 .subj-pick:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------------------------------------------------------- 后台识别提示 */
+.jobs-badge {
+  position: fixed;
+  left: 50%;
+  bottom: 68px;
+  transform: translateX(-50%);
+  z-index: 900;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12.5px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(20, 20, 19, .22);
+  cursor: pointer;
+  animation: jobsIn .18s ease;
+}
+@keyframes jobsIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
