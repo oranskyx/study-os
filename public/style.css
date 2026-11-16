@@ -985,15 +985,19 @@ body.tour-open { overflow: hidden; }
 .jobs-badge {
   position: fixed;
   left: 50%;
-  bottom: 68px;
+  bottom: 76px;
   transform: translateX(-50%);
   z-index: 900;
   background: var(--ink);
-  color: var(--paper);
+  color: var(--bg);
   font-size: 12.5px;
   padding: 7px 14px;
   border-radius: 999px;
   box-shadow: 0 4px 16px rgba(20, 20, 19, .22);
+  white-space: nowrap;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   animation: jobsIn .18s ease;
 }

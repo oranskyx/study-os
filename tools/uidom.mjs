@@ -294,6 +294,17 @@ if (navBtn) {
   check('图标里有 192 和 512 的 PNG', (mf.icons || []).some((i) => i.sizes === '192x192' && i.type === 'image/png') && (mf.icons || []).some((i) => i.sizes === '512x512' && i.type === 'image/png'), (mf.icons || []).map((i) => i.sizes).join(','));
   check('图标文件真实存在', ['icon-192.png', 'icon-512.png', 'apple-touch-icon.png'].every((f) => { try { return readFileSync(path.join(ROOT, 'public', f)).length > 500; } catch { return false; } }));
 }
+
+// ---------------------------------------------------------------- CSS 变量完整性
+// 引用一个从没定义过的 var(--x) 不会报错，计算值阶段直接失效：
+// 颜色退回继承值，深色背景上就成了「一条没有字的黑条」（2026-11-17 真踩过）。
+{
+  const css = readFileSync(path.join(ROOT, 'public/style.css'), 'utf8');
+  const defined = new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gmi)].map((m) => m[1]));
+  const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]));
+  const missing = [...used].filter((v) => !defined.has(v));
+  check('CSS 里引用的自定义变量都定义过', missing.length === 0, missing.length ? '缺：' + missing.join(', ') : used.size + ' 个变量全部有定义');
+}
 // ---------------------------------------------------------------- 打印页
 {
   const meta = await globalThis.fetch(`${BASE}/api/meta`).then((r) => r.json());
