@@ -1055,3 +1055,24 @@ body.tour-open { overflow: hidden; }
 }
 .tidy-row:first-of-type { border-top: 0; }
 .hint.ok { background: #eef4ec; border-color: #cfe0cb; color: #2f5d34; }
+
+/* 涂卡批改预览 */
+.sheet-sum { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.sheet-sum-item { font-size: 12.5px; padding: 3px 9px; border-radius: 999px; background: var(--subtle); }
+.sheet-sum-item.ok { background: #e8f0e6; color: #2f5d34; }
+.sheet-sum-item.bad { background: #f7e6e2; color: #a33b25; }
+.sheet-sum-item.half { background: #f6efe2; color: #8a6a2a; }
+.sheet-v { font-size: 13px; text-align: center; line-height: 1; }
+.sheet-v.ok { color: #2f5d34; font-weight: 700; }
+.sheet-v.bad { color: #a33b25; font-weight: 700; }
+.sheet-v.half { color: #8a6a2a; }
+.sheet-v.head { font-size: 11.5px; color: var(--muted); }
+.sheet-key { font-size: 11.5px; color: var(--muted); display: flex; gap: 4px; align-items: center; overflow: hidden; }
+.sheet-key.head { color: var(--muted); }
+.sheet-teacher { font-size: 10.5px; color: var(--accent); }
+.sheet-teacher.ok { color: #2f5d34; }
+.sheet-cell.key { border-style: dashed; border-color: var(--muted); }
+.sheet-cell.picked.key { border-style: solid; }
+/* 列宽：题号 / 4 个选项 / 判定 / 答案 */
+.sheet-row { grid-template-columns: 40px repeat(4, 1fr) 34px 78px; }
+.sheet-head { grid-template-columns: 40px repeat(4, 1fr) 34px 78px; }

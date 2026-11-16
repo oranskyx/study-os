@@ -548,41 +548,84 @@ function tidyCard(items) {
     + '</div>';
 }
 
+/**
+ * 答题卡总览：按真卷子的形状（题号 × ABCD 一整块）渲染，
+ * 同时把「批改结果」直接画上去：黑笔涂的、红笔改的、正确答案、对错。
+ * 目标是一眼看明白哪道对了哪道错了，而不是逐条翻。
+ */
 function answerSheetBlock(items) {
   const { esc } = A();
-  const choices = items.filter((it) => it.qtype === 'choice' || (it.q_no && it.options_json));
+  const choices = items.filter((it) => it.qtype === 'choice');
   if (!choices.length) return '';
 
+  const parseMarks = (it) => {
+    try { return it.marks_json ? JSON.parse(it.marks_json) : {}; } catch { return {}; }
+  };
+  const rightSet = (it) => new Set(String(it.correct_answer || '').toUpperCase().replace(/[^A-H]/g, '').split(''));
+  const mySet = (it) => new Set(String(it.my_answer || '').toUpperCase().replace(/[^A-H]/g, '').split(''));
+
   const cell = (it, L) => {
-    let m = {};
-    try { m = it.marks_json ? JSON.parse(it.marks_json) : {}; } catch { m = {}; }
-    const picked = String(it.my_answer || '').toUpperCase().includes(L);
-    const black = (m.black || []).includes(L);
+    const m = parseMarks(it);
+    const mine = mySet(it).has(L);
+    const right = rightSet(it).has(L);
     const red = (m.red || []).includes(L);
     const cls = ['sheet-cell'];
-    if (picked) cls.push('picked');
-    if (black) cls.push('mine');
+    if (mine) cls.push('picked');
     if (red) cls.push('red');
+    if (right && it.correct_answer) cls.push('key');
     return '<button type="button" class="' + cls.join(' ') + '" data-act="sheet-pick"'
-      + ' data-iid="' + it.id + '" data-l="' + L + '" aria-label="第 ' + (it.q_no || '?') + ' 题选 ' + L + '">'
-      + (picked ? '●' : '') + '</button>';
+      + ' data-iid="' + it.id + '" data-l="' + L + '" aria-label="第 ' + esc(it.q_no || '?') + ' 题选 ' + L + '">'
+      + (mine ? '●' : '') + '</button>';
   };
 
-  const rows = choices.map((it) => '<div class="sheet-row">'
-    + '<span class="sheet-no">' + esc(it.q_no || '·') + '</span>'
-    + ['A', 'B', 'C', 'D'].map((L) => cell(it, L)).join('')
-    + '<input class="sheet-hand" data-act="sheet-hand" data-iid="' + it.id + '"'
-    + ' value="' + esc(it.my_answer || '') + '" placeholder="手写" spellcheck="false">'
-    + '</div>').join('');
+  const verdictChip = (it) => {
+    const v = it.verdict || 'unknown';
+    if (v === 'right') return '<span class="sheet-v ok">✓</span>';
+    if (v === 'wrong') return '<span class="sheet-v bad">✗</span>';
+    if (v === 'partial') return '<span class="sheet-v half">半</span>';
+    return '<span class="sheet-v">—</span>';
+  };
 
-  return '<div class="card"><h2><span class="dot"></span>答题卡总览</h2>'
-    + '<p class="muted" style="margin:0 0 10px;font-size:12.5px">'
-    + '点格子直接选答案；右边一格填手写的（断句、多选、写字母都填这里）。点已选的再点一次取消。</p>'
+  const rows = choices.map((it) => {
+    const m = parseMarks(it);
+    const teacher = m.teacher === 'cross' ? '<span class="sheet-teacher">红叉</span>'
+      : m.teacher === 'tick' ? '<span class="sheet-teacher ok">红勾</span>' : '';
+    const visible = (m.visible || []).join('');
+    return '<div class="sheet-row">'
+      + '<span class="sheet-no">' + esc(it.q_no || '·') + '</span>'
+      + ['A', 'B', 'C', 'D'].map((L) => cell(it, L)).join('')
+      + verdictChip(it)
+      + '<span class="sheet-key">' + (it.correct_answer ? esc(String(it.correct_answer).slice(0, 6)) : '—') + teacher + '</span>'
+      + '</div>';
+  }).join('');
+
+  const counts = { right: 0, wrong: 0, partial: 0, unknown: 0 };
+  for (const it of choices) counts[it.verdict || 'unknown'] = (counts[it.verdict || 'unknown'] || 0) + 1;
+  // 判对了但没给分时按满分算，和看板口径保持一致
+  const eff = (it) => (it.score_got != null ? it.score_got
+    : it.verdict === 'right' ? (it.score_full || 0)
+    : it.verdict === 'wrong' ? 0 : null);
+  const got = choices.reduce((a, b) => a + (eff(b) || 0), 0);
+  const full = choices.reduce((a, b) => a + (b.score_full || 0), 0);
+
+  return '<div class="card"><h2><span class="dot"></span>涂卡批改预览</h2>'
+    + '<p class="muted" style="margin:0 0 8px;font-size:12.5px">'
+    + '黑底 = 我涂的，赭色圈 = 红笔改的，虚框 = 标准答案。点格子可以直接改。'
+    + '</p>'
+    + '<div class="sheet-sum">'
+    + '<span class="sheet-sum-item ok">对 ' + counts.right + '</span>'
+    + '<span class="sheet-sum-item bad">错 ' + counts.wrong + '</span>'
+    + '<span class="sheet-sum-item half">部分 ' + counts.partial + '</span>'
+    + '<span class="sheet-sum-item">未判 ' + counts.unknown + '</span>'
+    + '<span class="spacer" style="flex:1"></span>'
+    + '<span class="small muted">选择题合计 ' + fmtScore(got) + ' / ' + fmtScore(full) + '</span>'
+    + '</div>'
     + '<div class="sheet">'
     + '<div class="sheet-row sheet-head"><span class="sheet-no">题</span>'
     + '<span class="sheet-cell head">A</span><span class="sheet-cell head">B</span>'
     + '<span class="sheet-cell head">C</span><span class="sheet-cell head">D</span>'
-    + '<span class="sheet-hand head">手写</span></div>'
+    + '<span class="sheet-v head">判</span>'
+    + '<span class="sheet-key head">答案</span></div>'
     + rows
     + '</div></div>';
 }

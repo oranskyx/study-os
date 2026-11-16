@@ -695,8 +695,17 @@ function pruneParentItems(examId) {
     const items = all('SELECT * FROM exam_items WHERE exam_id=?', id);
     const pct = (a, b) => (b > 0 ? Math.round((a / b) * 100) : null);
 
+    // 判对了没给分时按满分补，判错了按 0 补：避免「verdict 有了但 score_got 是空」
+    // 导致选择题合计只有几分、丢分虚高。
+    const effGot = (it) => {
+      if (it.score_got != null) return it.score_got;
+      if (it.verdict === 'right') return it.score_full || 0;
+      if (it.verdict === 'wrong') return 0;
+      return null;
+    };
+    const scored = items.map((it) => ({ ...it, score_got: effGot(it) }));
     const full = items.reduce((a, b) => a + (b.score_full || 0), 0);
-    const got = items.reduce((a, b) => a + (b.score_got || 0), 0);
+    const got = scored.reduce((a, b) => a + (b.score_got || 0), 0);
     const wrong = items.filter((x) => x.verdict === 'wrong').length;
     const partial = items.filter((x) => x.verdict === 'partial').length;
     const right = items.filter((x) => x.verdict === 'right').length;
@@ -704,7 +713,7 @@ function pruneParentItems(examId) {
 
     const group = (fn) => {
       const m = new Map();
-      for (const it of items) {
+      for (const it of scored) {
         const k = fn(it) || '未标注';
         const o = m.get(k) || { label: k, n: 0, lost: 0, full: 0, got: 0 };
         o.n += 1;
@@ -720,7 +729,7 @@ function pruneParentItems(examId) {
     const byType = group((i) => ({ choice: '选择题', fill: '填空题', short: '简答', essay: '作文', calc: '计算/证明' }[i.qtype] || '未标注'));
     const byDiff = group((i) => '难度 ' + (i.difficulty || '?'));
 
-    const lostTop = items
+    const lostTop = scored
       .filter((i) => (i.score_full || 0) > (i.score_got || 0))
       .sort((a, b) => (b.score_full - b.score_got) - (a.score_full - a.score_got))
       .slice(0, 8)
