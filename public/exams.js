@@ -508,7 +508,8 @@ function tidyCandidates(items) {
 
     // 3) 碎片：题号不是数字（阅读材料 / 未标明 / 空）
     if (!q || !/^\d/.test(q)) {
-      if (it.qtype !== 'essay') fragments.push({ item: it, why: q ? '题号「' + q + '」不像题目编号' : '没有题号' });
+      const empty = !String(it.stem || '').trim() && !String(it.my_answer || '').trim();
+      if (empty || !q) fragments.push({ item: it, why: q ? '题号「' + q + '」不像题目编号' : '没有题号' });
     }
   }
   return { parents, fragments };
@@ -1144,19 +1145,18 @@ export async function handle(act, el) {
 
   // 整理：一键删父题 / 删单条 / 并入上一题
   if (act === 'tidy-drop-parents') {
-    const items = S2.detail?.items || [];
-    const { parents } = tidyCandidates(items);
-    if (!parents.length) return true;
+    const examId = S2.detail?.exam?.id; 
+    if (!examId) return true;
     el.disabled = true;
-    el.textContent = '删除中…';
-    let n = 0;
-    for (const p of parents) {
-      try { await api('/api/exams/items/' + p.item.id, { method: 'DELETE' }); n++; } catch { /* 跳过 */ }
+    el.textContent = '整理中…';
+    try {
+      const r = await api('/api/exams/' + examId + '/tidy', { method: 'POST', body: {} });
+      toast(r.pruned ? ('清掉 ' + r.pruned + ' 条重复/碎片，剩下 ' + r.total + ' 题') : '没有需要清的', r.pruned ? 'ok' : 'warn');
+    } catch (e) {
+      toast(e.message, 'err');
     }
-    toast('删掉 ' + n + ' 道父题，分值不再重复', 'ok');
     return render();
   }
-
   if (act === 'tidy-drop') {
     el.disabled = true;
     try { await api('/api/exams/items/' + el.dataset.iid, { method: 'DELETE' }); } catch (e) { toast(e.message, 'err'); }

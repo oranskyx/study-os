@@ -56,13 +56,22 @@ ${extraNote ? `学生补充说明：${extraNote}\n` : ''}
   不要再额外列一条「大题」把它的总分也算进去 —— 否则分数翻倍。
   例：现代文阅读 Ⅰ 共 3 小题（4+4+4），就只列 3 条，各 4 分，不要再来一条「现代文阅读 Ⅰ 12 分」。
 - 只列**确实出现在这张图上**的题。图上没有的题号不要编。
-- score_full 与 score_got 同时给：满分和实际得分。没有批改痕迹时 score_got 填 null，
-  verdict 填 unknown，不要自己猜一个分数。
+
 
 【作文/主观长题】qtype = essay 时：
 - my_answer 必须**完整转录学生写的正文**（分段，保留原话，不要概括、不要只写标题）。
 - 学生没写正文（空白/只写了题目）就 my_answer = null，并在 grading_note 写「只看到题目，没有正文」。
 - score_full 语文作文填 60、英语作文填 25（或按卷面标注的分值）。
+
+【全自动判分】没有红笔批改也要自己判，不要因为「没看到批改」就留空：
+- 页面上有红笔（√ × 半对 扣分）→ 照红笔折算，grading_note 写红笔原文。
+- 没有红笔，但有标准答案 / 评分标准 → **按答案自己判分**：
+  给出 verdict（right / wrong / partial）和 score_got，grading_note 写「AI 判：扣分理由」。
+- 连答案都没有 → 按学科常识判，同样给分，grading_note 写「AI 判：依据……」。
+- 只有这两种情况允许留空（score_got=null, verdict=unknown）：
+  ① qtype = essay（作文/大段创作，交给人看）
+  ② 字迹或拍照实在看不清，无法辨认作答内容
+  看不清时 grading_note 必须写清是哪里看不清。
 输出严格 JSON，格式：
 {
 

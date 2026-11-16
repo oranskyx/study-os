@@ -515,6 +515,30 @@ export function examsRouter() {
 
   // ---------------------------------------------------------------- 合并进暂存
   // 把已识别页面的题目并进 exam_items。同题号已存在则补空字段，不覆盖人工改过的内容。
+
+/** 父题/碎片判定：合并后自动清掉，避免分值重复计算。
+ *  规则和前端 tidyCandidates 一致，这里放在服务端是为了「点一次合并就干净」。 */
+function pruneParentItems(examId) {
+  const items = all('SELECT * FROM exam_items WHERE exam_id=?', examId);
+  const plain = (q) => /^\d+$/.test(String(q || '').trim());
+  const drop = [];
+  for (const it of items) {
+    const q = String(it.q_no || '').trim();
+    if (/^\d+\s*[~\-–—]\s*\d+$/.test(q)) { drop.push(it.id); continue; }   // 1~5 / 18-21
+    if (plain(q)) {
+      const hasKid = items.some((o) => {
+        const oq = String(o.q_no || '').trim();
+        return oq !== q && (oq.startsWith(q + '(') || oq.startsWith(q + '（') || oq.startsWith(q + '.'));
+      });
+      if (hasKid) { drop.push(it.id); continue; }
+    }
+    // 题号不是数字、又没有正文的垃圾条目
+    if (!/^\d/.test(q) && !S(it.stem) && !S(it.my_answer)) drop.push(it.id);
+  }
+  for (const iid of drop) run('DELETE FROM exam_items WHERE id=?', iid);
+  return drop.length;
+}
+
   r.post('/:id/merge', wrap(async (req, res) => {
     const id = Number(req.params.id);
     const pages = all(
@@ -558,10 +582,20 @@ export function examsRouter() {
       run('UPDATE exam_pages SET extracted=1 WHERE id=?', p.id);
     }
     run("UPDATE exams SET status='reviewing', updated_at=? WHERE id=?", nowISO(), id);
-    res.json({ added, filled, total: get('SELECT COUNT(*) AS c FROM exam_items WHERE exam_id=?', id).c });
+    // 合并完自动清掉父题和空碎片：用户点一次就是干净数据，不用再手点整理
+    const pruned = pruneParentItems(id);
+    res.json({ added, filled, pruned, total: get('SELECT COUNT(*) AS c FROM exam_items WHERE exam_id=?', id).c });
   }));
 
   // ---------------------------------------------------------------- 手工加一道（缺原卷 / 识别漏题时用）
+  /** 手动触发一次整理：删掉父题和空碎片，返回删了多少 */
+  r.post('/:id/tidy', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    const exam = get('SELECT * FROM exams WHERE id=? AND deleted_at IS NULL', id);
+    if (!exam) return res.status(404).json({ error: '考试不存在' });
+    const pruned = pruneParentItems(id);
+    res.json({ pruned, total: get('SELECT COUNT(*) AS c FROM exam_items WHERE exam_id=?', id).c });
+  }));
   r.post('/:id/items', wrap(async (req, res) => {
     const id = Number(req.params.id);
     const exam = get('SELECT * FROM exams WHERE id=?', id);
