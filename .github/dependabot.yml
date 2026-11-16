@@ -5,6 +5,14 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Express 5 是破坏性升级：路径参数里的正则（/:id(\d+)）被彻底移除，
+      # 注册时直接抛 path-to-regexp 错误，服务起不来。
+      # 这个项目不需要 Express 5 的新特性，留在 4.x；真要升得单独开一轮改路由 + 全量回归。
+      - dependency-name: express
+        update-types: ['version-update:semver-major']
+      - dependency-name: multer
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: github-actions
     directory: /
