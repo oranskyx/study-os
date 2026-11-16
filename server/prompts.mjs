@@ -58,6 +58,11 @@ ${extraNote ? `学生补充说明：${extraNote}\n` : ''}
 - 只列**确实出现在这张图上**的题。图上没有的题号不要编。
 - score_full 与 score_got 同时给：满分和实际得分。没有批改痕迹时 score_got 填 null，
   verdict 填 unknown，不要自己猜一个分数。
+
+【作文/主观长题】qtype = essay 时：
+- my_answer 必须**完整转录学生写的正文**（分段，保留原话，不要概括、不要只写标题）。
+- 学生没写正文（空白/只写了题目）就 my_answer = null，并在 grading_note 写「只看到题目，没有正文」。
+- score_full 语文作文填 60、英语作文填 25（或按卷面标注的分值）。
 输出严格 JSON，格式：
 {
 

@@ -471,6 +471,82 @@ function stageView(d) {
  * 不是每题一张小卡。这里按同样形状渲染，点格子直接改答案，
  * 旁边再给一格手写（断句、多选、填字母这类）。
  */
+/**
+ * 找出让分值重复计算的「父题」和「碎片」。
+ * 真卷子上「（一）阅读 I（本题共 5 小题，19 分）」是一行总述，
+ * 下面 1~5 小题各有分值；模型常常两层都列，于是 19 分被算两遍。
+ */
+function tidyCandidates(items) {
+  const plain = (q) => /^\d+$/.test(String(q || '').trim());
+  const numOf = (q) => {
+    const m = String(q || '').trim().match(/^(\d+)/);
+    return m ? Number(m[1]) : null;
+  };
+  const parents = [];
+  const fragments = [];
+
+  for (const it of items) {
+    const q = String(it.q_no || '').trim();
+
+    // 1) 题号是区间：1~5 / 18-21 → 一定是总述行
+    if (/^\d+\s*[~\-–—]\s*\d+$/.test(q)) {
+      parents.push({ item: it, why: '题号是区间「' + q + '」，下面各小题已经单独列了，这一条的分值会重复计算' });
+      continue;
+    }
+
+    // 2) 有子小题的父题：13 与 13(1)、13(2)
+    if (plain(q)) {
+      const kids = items.filter((o) => {
+        const oq = String(o.q_no || '').trim();
+        return oq !== q && (oq.startsWith(q + '(') || oq.startsWith(q + '（') || oq.startsWith(q + '.'));
+      });
+      if (kids.length) {
+        parents.push({ item: it, why: '下面还有 ' + kids.length + ' 道小题（' + kids.map((k) => k.q_no).join('、') + '），这一条的分值会重复计算' });
+        continue;
+      }
+    }
+
+    // 3) 碎片：题号不是数字（阅读材料 / 未标明 / 空）
+    if (!q || !/^\d/.test(q)) {
+      if (it.qtype !== 'essay') fragments.push({ item: it, why: q ? '题号「' + q + '」不像题目编号' : '没有题号' });
+    }
+  }
+  return { parents, fragments };
+}
+
+/** 整理卡：先告诉你有几处会算错分，再一键处理 */
+function tidyCard(items) {
+  const { esc } = A();
+  const { parents, fragments } = tidyCandidates(items);
+  if (!parents.length && !fragments.length) {
+    return '<div class="hint ok" style="margin-bottom:12px">题号没有重复，分值应该是对的。</div>';
+  }
+  const overCount = parents.reduce((a, p) => a + (p.item.score_full || 0), 0);
+
+  const line = (x, kind) => '<div class="tidy-row">'
+    + '<span class="badge ' + (kind === 'parent' ? 'key' : 'd') + '">' + (kind === 'parent' ? '父题' : '碎片') + '</span>'
+    + '<span class="small" style="flex:1;min-width:0">'
+    + '第 ' + esc(x.item.q_no || '?') + ' 题'
+    + (x.item.score_full ? ' · ' + fmtScore(x.item.score_full) + ' 分' : '')
+    + ' · ' + esc(x.why) + '</span>'
+    + (kind === 'fragment'
+      ? '<button class="btn sm ghost" data-act="tidy-merge-prev" data-iid="' + x.item.id + '">并入上一题</button>'
+      : '')
+    + '<button class="btn sm ghost" data-act="tidy-drop" data-iid="' + x.item.id + '">删掉</button>'
+    + '</div>';
+
+  return '<div class="card tidy-card">'
+    + '<h2><span class="dot"></span>先整理，再核对</h2>'
+    + '<p class="muted" style="margin:0 0 10px;font-size:12.5px">'
+    + '这些条目的分值和别的题重叠，留着会让「按题丢分」虚高。'
+    + (parents.length ? ' 父题共 ' + fmtScore(overCount) + ' 分是重复的。' : '')
+    + '</p>'
+    + (parents.length ? '<div class="row" style="margin-bottom:10px"><button class="btn sm primary" data-act="tidy-drop-parents">一键删掉 ' + parents.length + ' 道父题</button></div>' : '')
+    + parents.map((x) => line(x, 'parent')).join('')
+    + fragments.map((x) => line(x, 'fragment')).join('')
+    + '</div>';
+}
+
 function answerSheetBlock(items) {
   const { esc } = A();
   const choices = items.filter((it) => it.qtype === 'choice' || (it.q_no && it.options_json));
@@ -558,6 +634,7 @@ async function reviewView(d) {
   }
 
   const need = items.filter((x) => x.verdict === 'wrong' || x.verdict === 'partial').length;
+  h.push(tidyCard(items));           // 先说清楚哪些分数是重复的
   h.push(answerSheetBlock(items));   // 涂卡区：真卷子上的选择题是一整块
 
   h.push(`
@@ -571,10 +648,22 @@ async function reviewView(d) {
         <button class="btn" data-act="exam-import" data-only="1" ${need ? '' : 'disabled'}>收错题进错题库（${need}）</button>
         <button class="btn ghost" data-act="exam-import" data-only="0">全部收进去</button>
       </div>
+      <div class="seg" style="margin-top:10px">
+        <button class="seg-btn ${S3.itemFilter === 'all' ? 'on' : ''}" data-act="item-filter" data-v="all">全部 ${items.length}</button>
+        <button class="seg-btn ${S3.itemFilter === 'unknown' ? 'on' : ''}" data-act="item-filter" data-v="unknown">只看未判</button>
+        <button class="seg-btn ${S3.itemFilter === 'nosocre' ? 'on' : ''}" data-act="item-filter" data-v="nosocre">只看缺分值</button>
+      </div>
+      </div>
     </div>
   `);
 
-  for (const it of items) {
+  // 只看有问题的，避免逐条翻 30 多道题
+  const shown = items.filter((x) => {
+    if (S3.itemFilter === 'unknown') return (x.verdict || 'unknown') === 'unknown';
+    if (S3.itemFilter === 'nosocre') return x.score_full == null || x.score_got == null;
+    return true;
+  });
+  for (const it of shown) {
     const v = it.verdict || 'unknown';
     let opts = null;
     if (it.options_json) { try { opts = JSON.parse(it.options_json); } catch { opts = null; } }
@@ -730,7 +819,7 @@ async function analysisView(id) {
 }
 
 // ---------------------------------------------------------------- 交互
-const S3 = { edit: false, total: false };
+const S3 = { edit: false, total: false, itemFilter: 'all' };
 const idxOf = () => Number((String(location.hash).split('/')[2] || '').replace(/\D.*$/, ''));
 
 /** 新建页：把勾选与填写的科目收成数组 */
@@ -1053,6 +1142,48 @@ export async function handle(act, el) {
     return true;
   }
 
+  // 整理：一键删父题 / 删单条 / 并入上一题
+  if (act === 'tidy-drop-parents') {
+    const items = S2.detail?.items || [];
+    const { parents } = tidyCandidates(items);
+    if (!parents.length) return true;
+    el.disabled = true;
+    el.textContent = '删除中…';
+    let n = 0;
+    for (const p of parents) {
+      try { await api('/api/exams/items/' + p.item.id, { method: 'DELETE' }); n++; } catch { /* 跳过 */ }
+    }
+    toast('删掉 ' + n + ' 道父题，分值不再重复', 'ok');
+    return render();
+  }
+
+  if (act === 'tidy-drop') {
+    el.disabled = true;
+    try { await api('/api/exams/items/' + el.dataset.iid, { method: 'DELETE' }); } catch (e) { toast(e.message, 'err'); }
+    return render();
+  }
+
+  if (act === 'tidy-merge-prev') {
+    const items = S2.detail?.items || [];
+    const iid = Number(el.dataset.iid);
+    const idx = items.findIndex((x) => Number(x.id) === iid);
+    if (idx <= 0) return toast('这是第一道，前面没有可并入的题', 'warn');
+    const cur = items[idx];
+    const prev = items[idx - 1];
+    el.disabled = true;
+    try {
+      const stem = [prev.stem, cur.stem].filter(Boolean).join('\n\n');
+      await api('/api/exams/items/' + prev.id, { method: 'PATCH', body: { stem } });
+      await api('/api/exams/items/' + cur.id, { method: 'DELETE' });
+      toast('已并入第 ' + prev.q_no + ' 题', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+    return render();
+  }
+
+  if (act === 'item-filter') {
+    S3.itemFilter = el.dataset.v;
+    return render();
+  }
   if (act === 'sheet-pick') {
     const iid = Number(el.dataset.iid);
     const L = el.dataset.l;
