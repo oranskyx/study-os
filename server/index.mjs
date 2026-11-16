@@ -393,7 +393,25 @@ app.post('/api/questions/:id/attempt', wrap(async (req, res) => {
   if (result !== 'correct' && result !== 'wrong') {
     return res.status(400).json({ error: 'result 只能是 correct 或 wrong' });
   }
-  const q = recordAttempt(Number(req.params.id), result, req.body?.via || 'app');
+  const qid = Number(req.params.id);
+
+  // 防手抖：8 秒内同一题、同一结果重复提交只记一次。
+  // 之前没有这层保护，用户看 toast 一闪以为没点上，连点 20 下，
+  // review_count 被推到曲线尽头，复习计划直接作废。
+  const since = new Date(Date.now() - 8000).toISOString();
+  const recent = get(
+    'SELECT * FROM attempts WHERE question_id=? AND result=? AND at > ? ORDER BY id DESC LIMIT 1',
+    qid, result, since
+  );
+  if (recent) {
+    return res.json({
+      question: get('SELECT * FROM questions WHERE id=?', qid),
+      deduped: true,
+      hint: '刚刚已经记过这一次了，没有重复计数',
+    });
+  }
+
+  const q = recordAttempt(qid, result, req.body?.via || 'app');
   applyStatusRules();
   refreshSchedules();
   res.json({ question: get('SELECT * FROM questions WHERE id=?', q.id) });

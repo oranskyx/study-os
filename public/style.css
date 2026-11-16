@@ -707,7 +707,16 @@ textarea { min-height: 68px; line-height: 1.65; }
   background: var(--card);
   overflow: hidden;
 }
-.page-card img { display: block; width: 100%; height: 180px; object-fit: cover; cursor: zoom-in; background: var(--subtle); }
+.page-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+  cursor: zoom-in;
+  background: var(--subtle);
+}
+@media (max-width: 560px) { .page-card img { max-height: 300px; } }
 .pc-body { padding: 10px; display: grid; gap: 7px; }
 .pc-body select { font-size: 13px; padding: 6px 8px; }
 .pc-meta { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -929,3 +938,29 @@ textarea { min-height: 68px; line-height: 1.65; }
 .tour-body { margin: 0 0 12px; font-size: 13.5px; line-height: 1.65; color: var(--ink-2); }
 .tour-actions { display: flex; align-items: center; gap: 6px; }
 body.tour-open { overflow: hidden; }
+
+/* ---------------------------------------------------------- 全屏看图（可双指缩放） */
+.zoom-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 9997;
+  background: rgba(20, 20, 19, .94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  touch-action: pinch-zoom;
+  -webkit-overflow-scrolling: touch;
+}
+.zoom-layer img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  cursor: zoom-out;
+}
+.zoom-close {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 9998;
+}

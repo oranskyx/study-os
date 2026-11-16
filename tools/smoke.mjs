@@ -15,7 +15,16 @@ const settingsGuard = guardSettings();
 const createdIds = [];
 
 const BASE = process.env.BASE || 'http://127.0.0.1:7788';
-const DAY = 86400000;
+
+// 这道套件会造题、改配置、生成复习单——只能对着隔离环境跑。
+// 单独 `npm run test:api` 时 BASE 没被设置，会连到真实服务，把测试题灌进真实题库
+// （2026-11-16 真的这么污染了 37 道）。默认拒绝，确需对真实服务测就显式开绿灯。
+if (!process.env.BASE && process.env.ALLOW_REAL !== '1') {
+  console.error('拒绝连真实数据：这个套件会造题和改配置。');
+  console.error('请用 npm run test:all（会自动起隔离的临时服务），');
+  console.error('或显式确认：ALLOW_REAL=1 npm run test:api');
+  process.exit(2);
+}const DAY = 86400000;
 let pass = 0;
 let fail = 0;
 
@@ -187,6 +196,22 @@ console.log('\n=== 4. 二次错 → 重点错题 ===');
   const second = await call(`/api/questions/${id}/attempt`, { method: 'POST', body: { result: 'correct' } });
   ok('做对后连对数 +1', second.data.question.correct_streak === 1, `streak=${second.data.question.correct_streak}`);
   ok('做错后复习次数重置', second.data.question.review_count === 1);
+}
+
+console.log('\n=== 5.5 手抖连点不重复计数 ===');
+{
+  const made = await call('/api/questions/bulk', { method: 'POST', body: { questions: [{ stem: '幂等自检题', correct_answer: '6', kp_name: '集合的概念与表示' }] } });
+  const qid = made.data.ids[0];
+  createdIds.push(qid);
+  const p = '/api/questions/' + qid + '/attempt';
+  const first = await call(p, { method: 'POST', body: { result: 'correct' } });
+  const second = await call(p, { method: 'POST', body: { result: 'correct' } });
+  ok('重复提交不会重复计数（8 秒内同结果去重）',
+    !first.data.deduped && second.data.deduped === true,
+    '第一次 deduped=' + first.data.deduped + ' 第二次 deduped=' + second.data.deduped);
+  const st = await call('/api/questions/' + qid);
+  const q1 = st.data.question || st.data;
+  ok('去重后 review_count 只加 1', q1.review_count === 1, 'review_count=' + q1.review_count);
 }
 
 console.log('\n=== 5. 复习单 ===');

@@ -282,11 +282,24 @@ async function uploadExamPages(input) {
   toast('上传中（' + kept + ' 张）…', 'ok');
   try {
     await api('/api/exams/' + examId + '/pages', { method: 'POST', form: fd });
-    toast('上传完成', 'ok');
+    toast('已上传 ' + kept + ' 张，可以接着拍下一张', 'ok');
   } catch (err) {
     toast('上传失败：' + err.message, 'err');
+    return false;
   }
-  return render();
+  // 不整页重渲染：重渲染会把滚动位置弹回顶部，用户以为流程结束、要重新找按钮。
+  // 只用接口数据把新增的图补到列表里，视觉焦点留在传图区。
+  await refreshPages();
+  const card = document.querySelector('#main .card');
+  if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start' });
+  return true;
+}
+
+/** 传完图之后回到传图区（不弹回顶部），让用户可以接着拍下一张 */
+async function refreshPages() {
+  await render();
+  const card = document.querySelector('#main .card');
+  if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start' });
 }
 export async function viewDetail(id) {
   const { api, esc } = A();
@@ -336,9 +349,9 @@ function stageView(d) {
       <p class="muted" style="margin:0 0 10px">
         可以一次选多张。传完先看系统判的类型对不对，判错直接在下面改，再点识别。
       </p>
-      <div class="row" style="gap:8px">
+      <div class="row" style="gap:8px;flex-wrap:wrap">
         <label class="btn primary" style="margin:0">
-          拍照
+          ${pages.length ? '再拍一张' : '拍照'}
           <input type="file" id="exCam" accept="image/*" capture="environment" hidden>
         </label>
         <label class="btn" style="margin:0">
@@ -350,6 +363,7 @@ function stageView(d) {
         </button>
         <button class="btn" data-act="exam-merge" ${done ? '' : 'disabled'}>合并到题目列表</button>
       </div>
+      ${pages.length ? '<p class="small" style="margin:8px 0 0">已传 ' + pages.length + ' 张。拍完一张可以直接接着点「再拍一张」，不用退出去。</p>' : ''}
       <p class="muted" style="margin:8px 0 0;font-size:12px">识别会自动判断这张是原卷 / 答题卡 / 答案，判断理由写在卡片上。</p>
     </div>
   `);
@@ -965,8 +979,15 @@ export async function handle(act, el) {
 
   if (act === 'exam-zoom') {
     const url = el.dataset.src;
-    const w = window.open('', '_blank');
-    if (w) w.document.write('<img src="' + url + '" style="max-width:100%">');
+    document.querySelector('.zoom-layer')?.remove();
+    const layer = document.createElement('div');
+    layer.className = 'zoom-layer';
+    layer.innerHTML = '<img src="' + url + '" alt="原图">'
+      + '<button class="btn sm zoom-close" type="button">关闭</button>';
+    layer.addEventListener('click', (ev) => {
+      if (ev.target === layer || ev.target.classList.contains('zoom-close')) layer.remove();
+    });
+    document.body.appendChild(layer);
     return true;
   }
 

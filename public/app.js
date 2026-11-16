@@ -734,7 +734,7 @@ async function viewQuestion(id) {
           ${kpOptions(q.subject_id, q.kp_name)}
         </select>
       </label>
-      <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <div class="row" data-mark-group style="gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <button class="btn ok sm" data-act="mark" data-id="${q.id}" data-r="correct">这次做对了</button>
         <button class="btn bad sm" data-act="mark" data-id="${q.id}" data-r="wrong">又错了</button>
         <button class="btn sm" data-act="diagnose" data-id="${q.id}">AI 深挖错因</button>
@@ -1492,13 +1492,24 @@ document.addEventListener('click', async (e) => {
     if (act === 'q-open') return go(`q/${el.dataset.id}`);
 
     if (act === 'mark') {
-      el.disabled = true;
+      // 立刻把这一组按钮锁死并改文案：只靠 toast 提示，用户会以为没点上而连点
+      const group = el.closest('[data-mark-group]') || el.parentElement;
+      const buttons = group ? [...group.querySelectorAll('[data-act="mark"]')] : [el];
+      for (const b of buttons) b.disabled = true;
+      el.textContent = el.dataset.r === 'correct' ? '✓ 已记为做对' : '✗ 已记为做错';
+      el.classList.add('picked');
+
       const r = await api(`/api/questions/${el.dataset.id}/attempt`, {
         method: 'POST',
         body: { result: el.dataset.r },
       });
       S.meta = null;
       const q = r.question;
+      if (r.deduped) {
+        toast('刚刚已经记过一次，没有重复计数', 'warn');
+        for (const b of buttons) b.disabled = false;
+        return true;
+      }
       toast(
         q.status === 'archived'
           ? '已归档为已掌握'
