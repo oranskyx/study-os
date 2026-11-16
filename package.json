@@ -52,7 +52,7 @@
     "icons": "node tools/make-icons.mjs"
   },
   "dependencies": {
-    "express": "^4.21.2",
+    "express": "^5.3.0",
     "katex": "^0.19.1",
     "multer": "^2.0.2",
     "qrcode": "^1.5.4"
