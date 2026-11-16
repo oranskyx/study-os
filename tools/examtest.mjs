@@ -199,6 +199,30 @@ if (!MOCK) {
   ok('局部更新不会清掉其他字段', afterPartial.my_score === 95 && afterPartial.full_score === 100 && afterPartial.class_size === 56, JSON.stringify({ s: afterPartial.my_score, f: afterPartial.full_score, c: afterPartial.class_size }));
   ok('物理满分默认 100（不是 150）', afterPartial.full_score === 100);
 
+
+  // 整场成绩（总分 / 班级总排名 / 校总排名）
+  const sesT = await api('/api/exams/sessions', {
+    method: 'POST',
+    body: {
+      grade: 1, term: 'up', exam_type: 'final', exam_date: '2026-12-30',
+      total_score: 680, full_score_total: 750,
+      rank_class_total: 3, class_size_total: 56,
+      rank_school_total: 88, school_size_total: 2214,
+      subjects: [{ subject_id: 'math', my_score: 120 }],
+    },
+  });
+  ok('建考次时可以带整场总分与总排名', sesT.status === 200, JSON.stringify(sesT.j.session?.total_score));
+  const tid = sesT.j.id;
+  const tDet = await api('/api/exams/sessions/' + tid);
+  ok('整场总分存下来了', tDet.j.session.total_score === 680 && tDet.j.session.full_score_total === 750);
+  ok('班级总排名与人数存下来了', tDet.j.session.rank_class_total === 3 && tDet.j.session.class_size_total === 56);
+  ok('校总排名与人数存下来了', tDet.j.session.rank_school_total === 88 && tDet.j.session.school_size_total === 2214);
+
+  const tUpd = await api('/api/exams/sessions/' + tid, { method: 'PATCH', body: { total_score: 700, rank_school_total: 60 } });
+  ok('整场成绩可以单独改', tUpd.j.session.total_score === 700 && tUpd.j.session.rank_school_total === 60,
+    JSON.stringify({ total: tUpd.j.session.total_score, school: tUpd.j.session.rank_school_total }));
+  await api('/api/exams/sessions/' + tid, { method: 'DELETE' });
+
   const ps = await api('/api/exams/presets');
   ok('班级人数 56 进了候选项', (ps.j.class_sizes || []).includes(56), JSON.stringify(ps.j.class_sizes));
   ok('校人数 2214 进了候选项', (ps.j.school_sizes || []).includes(2214), JSON.stringify(ps.j.school_sizes));

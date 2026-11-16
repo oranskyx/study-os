@@ -40,6 +40,21 @@ const VERDICTS = [
 
 const A = () => window.__app;
 
+/** 读一个数字输入框，空字符串当 null（选填字段） */
+function numOrNull(id) {
+  const el = document.getElementById(id);
+  if (!el || el.value === '') return null;
+  const n = Number(el.value);
+  return Number.isNaN(n) ? null : n;
+}
+
+// 模块级快捷方式：uploadExamPages / refreshPages 这类辅助函数在 view/handle 之外，
+// 没有局部解构可用。之前它们直接调 api()/toast()/render()，运行时报
+// ReferenceError 被 async 监听器吞掉，表现就是「点拍照毫无反应」。
+const api = (...a) => window.__app.api(...a);
+const toast = (...a) => window.__app.toast(...a);
+const render = (...a) => window.__app.render(...a);
+
 const S2 = {
   tab: 'stage',
   list: null,
@@ -176,6 +191,16 @@ export async function viewNew() {
     + '<div class="field-row"><label class="field"><span>日期</span><input id="nDate" type="date" value="' + today + '"></label>'
     + '<label class="field"><span>规模</span><select id="nBig"><option value="1">大考（多科）</option><option value="0">小考（一科）</option></select></label>'
     + '</div>'
+    + '<div class="field-row">'
+    + '<label class="mini"><span>考试总分（选填）</span><input id="nTotal" type="number" step="0.5" placeholder="例如 750"></label>'
+    + '<label class="mini"><span>总分满分（选填）</span><input id="nTotalFull" type="number" step="0.5" placeholder="例如 750"></label>'
+    + '</div>'
+    + '<div class="field-row">'
+    + '<label class="mini"><span>班级总排名</span><input id="nRankClassAll" type="number" placeholder="—"></label>'
+    + '<label class="mini"><span>班级人数</span><input id="nClassSizeAll" type="number" placeholder="56"></label>'
+    + '<label class="mini"><span>校总排名</span><input id="nRankSchoolAll" type="number" placeholder="—"></label>'
+    + '<label class="mini"><span>校总人数</span><input id="nSchoolSizeAll" type="number" placeholder="2200"></label>'
+    + '</div>'
     + '<p class="muted" style="margin:0 0 8px;font-size:12px">名称不用填，自动生成（例如 2026高一上期中）。</p>'
     + smallRow
     + '<div id="nBigRows">' + rows + '</div>'
@@ -222,9 +247,39 @@ export async function viewSession(id) {
       + '<button class="btn primary sm" data-act="exam-session-save" data-id="' + s.id + '">保存这场考试</button>'
       + '</div>');
   }
-  h.push('</div>');
 
-  // 科目行：全部字段可改
+  // 整场成绩（各科之外）：总分与班级/校总排名
+  const hasTotal = s.total_score != null || s.rank_class_total != null || s.rank_school_total != null;
+  h.push('<div class="card">'
+    + '<div class="row between" style="margin-bottom:8px">'
+    + '<h2 style="margin:0"><span class="dot"></span>整场成绩</h2>'
+    + '<button class="btn sm ghost" data-act="exam-total-edit">' + (S3.total ? '收起' : '编辑') + '</button>'
+    + '</div>'
+    + (hasTotal
+      ? '<div class="stats">'
+        + '<div class="s"><div class="n">' + (s.total_score != null ? fmtScore(s.total_score) : '—') + '</div><div class="l">总分' + (s.full_score_total ? ' / ' + fmtScore(s.full_score_total) : '') + '</div></div>'
+        + '<div class="s"><div class="n">' + (s.rank_class_total != null ? s.rank_class_total : '—') + '</div><div class="l">班级排名' + (s.class_size_total ? ' / ' + s.class_size_total : '') + '</div></div>'
+        + '<div class="s"><div class="n">' + (s.rank_school_total != null ? s.rank_school_total : '—') + '</div><div class="l">校排名' + (s.school_size_total ? ' / ' + s.school_size_total : '') + '</div></div>'
+        + '</div>'
+      : '<p class="muted" style="margin:0">还没填整场总分和总排名。点「编辑」补上，列表里就能看到总分率。</p>')
+    + (S3.total
+      ? '<div class="edit-form" style="margin-top:10px">'
+        + '<div class="field-row">'
+        + '<label class="mini"><span>考试总分</span><input id="tTotal" type="number" step="0.5" value="' + (s.total_score ?? '') + '" placeholder="750"></label>'
+        + '<label class="mini"><span>总分满分</span><input id="tTotalFull" type="number" step="0.5" value="' + (s.full_score_total ?? '') + '" placeholder="750"></label>'
+        + '</div>'
+        + '<div class="field-row">'
+        + '<label class="mini"><span>班级总排名</span><input id="tRankClass" type="number" value="' + (s.rank_class_total ?? '') + '"></label>'
+        + '<label class="mini"><span>班级人数</span><input id="tClassSize" type="number" value="' + (s.class_size_total ?? '') + '"></label>'
+        + '<label class="mini"><span>校总排名</span><input id="tRankSchool" type="number" value="' + (s.rank_school_total ?? '') + '"></label>'
+        + '<label class="mini"><span>校总人数</span><input id="tSchoolSize" type="number" value="' + (s.school_size_total ?? '') + '"></label>'
+        + '</div>'
+        + '<button class="btn primary sm" data-act="exam-total-save" data-id="' + s.id + '">保存整场成绩</button>'
+        + '</div>'
+      : '')
+    + '</div>');
+
+// 科目行：全部字段可改
   for (const e of subs) {
     h.push('<div class="card subj-card" data-eid="' + e.id + '">'
       + '<div class="row between" style="margin-bottom:8px">'
@@ -248,18 +303,23 @@ export async function viewSession(id) {
       + '</div>');
   }
 
-  h.push('<div class="card"><h2><span class="dot"></span>补一科</h2>'
-    + '<div class="field-row">'
-    + '<label class="field"><span>科目</span><select id="addSubj">' + SUBJECTS.filter(([id]) => !subs.some((e) => e.subject_id === id)).map(([id, l]) => '<option value="' + id + '">' + l + '</option>').join('') + '</select></label>'
-    + '<label class="mini"><span>满分</span><input id="addFull" type="number" step="0.5" value="150" data-autofull="1"></label>'
-    + '<label class="mini"><span>得分</span><input id="addScore" type="number" step="0.5" placeholder="—"></label>'
-    + '</div><button class="btn sm" data-act="exam-add-subject" data-id="' + s.id + '">加入这场考试</button></div>');
-
+  // 补一科：勾选式（可以一次加多科），比下拉好点，也符合「打勾选择」的习惯
+  const missing = SUBJECTS.filter(([id]) => !subs.some((e) => e.subject_id === id));
+  if (missing.length) {
+    h.push('<div class="card"><h2><span class="dot"></span>加科目</h2>'
+      + '<p class="muted" style="margin:0 0 10px">勾选要补的科目，可以多选。</p>'
+      + '<div class="subj-pick-row">'
+      + missing.map(([id, label]) => '<label class="subj-pick"><input type="checkbox" data-addsub="' + id + '"><span>' + label + '</span></label>').join('')
+      + '</div>'
+      + '<div class="field-row" style="margin-top:10px">'
+      + '<label class="mini"><span>满分（留空按默认）</span><input id="addFull2" type="number" step="0.5" placeholder="150 / 100"></label>'
+      + '</div>'
+      + '<button class="btn sm primary" data-act="exam-add-subjects" data-id="' + s.id + '">加入这场考试</button>'
+      + '</div>');
+  }
   return h.join('');
 }
 
-// ---------------------------------------------------------------- 详情
-/** 考试传图：和「录入」共用同一套裁切/旋转编辑器，逐张处理完再一起上传 */
 async function uploadExamPages(input) {
   const files = [...(input.files || [])];
   input.value = '';
@@ -295,12 +355,12 @@ async function uploadExamPages(input) {
   return true;
 }
 
-/** 传完图之后回到传图区（不弹回顶部），让用户可以接着拍下一张 */
 async function refreshPages() {
   await render();
   const card = document.querySelector('#main .card');
   if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start' });
 }
+
 export async function viewDetail(id) {
   const { api, esc } = A();
   const d = await api('/api/exams/' + id);
@@ -607,7 +667,7 @@ async function analysisView(id) {
 }
 
 // ---------------------------------------------------------------- 交互
-const S3 = { edit: false };
+const S3 = { edit: false, total: false };
 const idxOf = () => Number((String(location.hash).split('/')[2] || '').replace(/\D.*$/, ''));
 
 /** 新建页：把勾选与填写的科目收成数组 */
@@ -668,6 +728,34 @@ export async function handle(act, el) {
 
   if (act === 'exam-session-open') return A().go('session/' + el.dataset.id);
 
+  if (act === 'exam-total-edit') {
+    S3.total = !S3.total;
+    return render();
+  }
+
+  if (act === 'exam-total-save') {
+    el.disabled = true;
+    try {
+      await api('/api/exams/sessions/' + el.dataset.id, {
+        method: 'PATCH',
+        body: {
+          total_score: numOrNull('tTotal'),
+          full_score_total: numOrNull('tTotalFull'),
+          rank_class_total: numOrNull('tRankClass'),
+          class_size_total: numOrNull('tClassSize'),
+          rank_school_total: numOrNull('tRankSchool'),
+          school_size_total: numOrNull('tSchoolSize'),
+        },
+      });
+      toast('整场成绩已保存', 'ok');
+      S3.total = false;
+    } catch (err) {
+      toast(err.message, 'err');
+      el.disabled = false;
+      return true;
+    }
+    return render();
+  }
   if (act === 'exam-session-edit') {
     S3.edit = !S3.edit;
     return render();
@@ -694,6 +782,12 @@ export async function handle(act, el) {
           exam_type: typeKey,
           exam_date: document.getElementById('nDate')?.value,
           is_big: document.getElementById('nBig')?.value !== '0',
+          total_score: numOrNull('nTotal'),
+          full_score_total: numOrNull('nTotalFull'),
+          rank_class_total: numOrNull('nRankClassAll'),
+          class_size_total: numOrNull('nClassSizeAll'),
+          rank_school_total: numOrNull('nRankSchoolAll'),
+          school_size_total: numOrNull('nSchoolSizeAll'),
           subjects,
         },
       });
@@ -773,6 +867,25 @@ export async function handle(act, el) {
     return render();
   }
 
+  if (act === 'exam-add-subjects') {
+    const picked = [...document.querySelectorAll('[data-addsub]:checked')].map((i) => i.dataset.addsub);
+    if (!picked.length) return toast('先勾选要加的科目', 'warn');
+    const fullEl = document.getElementById('addFull2');
+    const full = fullEl && fullEl.value !== '' ? Number(fullEl.value) : null;
+    el.disabled = true;
+    let ok = 0;
+    for (const subject_id of picked) {
+      try {
+        const body = full ? { subject_id, full_score: full } : { subject_id };
+        await api('/api/exams/sessions/' + el.dataset.id + '/subjects', { method: 'POST', body });
+        ok++;
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    }
+    if (ok) toast('已加入 ' + ok + ' 科', 'ok');
+    return render();
+  }
   if (act === 'exam-add-subject') {
     const subject_id = document.getElementById('addSubj')?.value;
     if (!subject_id) return toast('没有可加的科目了', 'warn');

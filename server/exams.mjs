@@ -296,7 +296,14 @@ export function examsRouter() {
 
     const sid = insert('exam_sessions', {
       title, grade, term, exam_type: type.key, exam_date: examDate, is_big: isBig,
-      note: S(b.note), created_at: nowISO(), updated_at: nowISO(),
+      note: S(b.note),
+      total_score: num(b.total_score),
+      full_score_total: num(b.full_score_total),
+      rank_class_total: num(b.rank_class_total),
+      class_size_total: num(b.class_size_total),
+      rank_school_total: num(b.rank_school_total),
+      school_size_total: num(b.school_size_total),
+      created_at: nowISO(), updated_at: nowISO(),
     });
 
     const wanted = Array.isArray(b.subjects) ? b.subjects : [];
@@ -334,6 +341,9 @@ export function examsRouter() {
     const b = req.body || {};
     const patch = {};
     for (const k of ['title', 'term', 'exam_type', 'exam_date', 'note']) if (k in b) patch[k] = S(b[k]);
+    for (const k of ['total_score', 'full_score_total', 'rank_class_total', 'class_size_total', 'rank_school_total', 'school_size_total']) {
+      if (k in b) patch[k] = num(b[k]);
+    }
     if ('grade' in b) patch.grade = Math.max(1, Math.min(3, Number(b.grade) || s.grade));
     if ('is_big' in b) patch.is_big = b.is_big ? 1 : 0;
     // 名称不手填：改了年级/学期/类型就按入学届重算

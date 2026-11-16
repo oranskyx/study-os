@@ -964,3 +964,19 @@ body.tour-open { overflow: hidden; }
   right: 14px;
   z-index: 9998;
 }
+
+/* ---------------------------------------------------------- 科目勾选 */
+.subj-pick-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.subj-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  cursor: pointer;
+  font-size: 13.5px;
+  user-select: none;
+}
+.subj-pick input { width: 18px; height: 18px; margin: 0; accent-color: var(--ink); }
+.subj-pick:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }

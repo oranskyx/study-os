@@ -294,6 +294,19 @@ for (const [col, ddl] of [
   if (!exCols.has(col)) db.exec('ALTER TABLE exams ADD COLUMN ' + col + ' ' + ddl);
 }
 db.exec('CREATE INDEX IF NOT EXISTS ix_exam_session ON exams(session_id)');
+// 考次级的总分与总排名（各科之外的整场成绩）
+const sesCols = new Set(db.prepare("PRAGMA table_info('exam_sessions')").all().map((c) => c.name));
+for (const [col, ddl] of [
+  ['total_score', 'REAL'],
+  ['full_score_total', 'REAL'],
+  ['rank_class_total', 'INTEGER'],
+  ['class_size_total', 'INTEGER'],
+  ['rank_school_total', 'INTEGER'],
+  ['school_size_total', 'INTEGER'],
+]) {
+  if (!sesCols.has(col)) db.exec('ALTER TABLE exam_sessions ADD COLUMN ' + col + ' ' + ddl);
+}
+
 // 内置考试类型：期中/期末/月考（用户可以在界面里改名或新增）
 for (const [key, label, sort] of [['midterm', '期中', 10], ['final', '期末', 20], ['monthly', '月考', 30]]) {
   db.prepare('INSERT OR IGNORE INTO exam_types (key,label,builtin,sort) VALUES (?,?,1,?)').run(key, label, sort);
